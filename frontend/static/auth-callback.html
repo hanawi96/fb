@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Đang xử lý...</title>
+	<style>
+		body { margin: 0; background: #fff; }
+	</style>
+	<script>
+		// Chạy ngay khi HTML parse, không cần đợi DOM ready
+		(function() {
+			const urlParams = new URLSearchParams(window.location.search);
+			const code = urlParams.get('code');
+			
+			if (code && window.opener) {
+				window.opener.postMessage({ type: 'facebook-callback', code: code }, '*');
+				window.close();
+			} else if (!window.opener) {
+				window.location.href = '/pages';
+			}
+		})();
+	</script>
+</head>
+<body></body>
+</html>
