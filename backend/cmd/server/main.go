@@ -72,6 +72,7 @@ func main() {
 	// Posts routes
 	apiRouter.HandleFunc("/posts", handler.CreatePost).Methods("POST")
 	apiRouter.HandleFunc("/posts", handler.GetPosts).Methods("GET")
+	apiRouter.HandleFunc("/posts/publish", handler.PublishPost).Methods("POST")
 	apiRouter.HandleFunc("/posts/{id}", handler.GetPost).Methods("GET")
 	apiRouter.HandleFunc("/posts/{id}", handler.UpdatePost).Methods("PUT")
 	apiRouter.HandleFunc("/posts/{id}", handler.DeletePost).Methods("DELETE")
@@ -87,6 +88,9 @@ func main() {
 	
 	// Upload route
 	apiRouter.HandleFunc("/upload", handler.UploadImage).Methods("POST")
+	
+	// Serve uploaded files
+	router.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("./uploads"))))
 
 	// CORS configuration
 	allowedOrigins := []string{os.Getenv("FRONTEND_URL")}
@@ -116,9 +120,9 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + port,
 		Handler:      c.Handler(router),
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 120 * time.Second, // Tăng lên 2 phút cho upload nhiều ảnh
+		IdleTimeout:  120 * time.Second,
 	}
 
 	log.Printf("🚀 Server running on http://localhost:%s\n", port)

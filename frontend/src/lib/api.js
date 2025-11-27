@@ -17,14 +17,21 @@ async function request(endpoint, options = {}) {
 		}
 	};
 	
-	const response = await fetch(url, config);
-	
-	if (!response.ok) {
-		const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-		throw new Error(error.error || 'Request failed');
+	try {
+		const response = await fetch(url, config);
+		
+		if (!response.ok) {
+			const error = await response.json().catch(() => ({ error: 'Request failed' }));
+			throw new Error(error.error || `HTTP ${response.status}: ${response.statusText}`);
+		}
+		
+		return response.json();
+	} catch (error) {
+		if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+			throw new Error('Không thể kết nối đến server. Vui lòng kiểm tra lại.');
+		}
+		throw error;
 	}
-	
-	return response.json();
 }
 
 export const api = {
@@ -46,6 +53,10 @@ export const api = {
 	
 	// Posts
 	createPost: (post) => request('/api/posts', {
+		method: 'POST',
+		body: JSON.stringify(post)
+	}),
+	publishPost: (post) => request('/api/posts/publish', {
 		method: 'POST',
 		body: JSON.stringify(post)
 	}),

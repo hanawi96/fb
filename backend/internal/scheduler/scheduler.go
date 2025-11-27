@@ -64,6 +64,7 @@ func (s *Scheduler) publishPost(sp db.ScheduledPost) {
 		sp.Page.AccessToken,
 		sp.Post.Content,
 		sp.Post.MediaURLs,
+		sp.Post.MediaType,
 	)
 	
 	logEntry := &db.PostLog{
