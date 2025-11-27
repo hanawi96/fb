@@ -1,7 +1,16 @@
 <script>
-	import { Sparkles, Image, Video, Smile, MapPin, Tag } from 'lucide-svelte';
+	import { Sparkles, Smile, Hash } from 'lucide-svelte';
+	import EmojiPicker from './EmojiPicker.svelte';
+	import HashtagSuggester from './HashtagSuggester.svelte';
 	
 	export let onAiClick = () => {};
+	export let onEmojiSelect = (emoji) => {};
+	export let onHashtagSelect = (hashtag) => {};
+	
+	let showEmojiPicker = false;
+	let showHashtagSuggester = false;
+	let emojiButtonElement;
+	let hashtagButtonElement;
 </script>
 
 <div class="border-b border-gray-100 p-3 flex items-center gap-2">
@@ -15,19 +24,43 @@
 	
 	<div class="w-px h-6 bg-gray-200"></div>
 	
-	<button class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Thêm ảnh">
-		<Image size={20} />
-	</button>
-	<button class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Thêm video">
-		<Video size={20} />
-	</button>
-	<button class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Thêm emoji">
+	<!-- Emoji Picker -->
+	<button 
+		bind:this={emojiButtonElement}
+		on:click={() => showEmojiPicker = !showEmojiPicker}
+		class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors {showEmojiPicker ? 'bg-blue-50 text-blue-600' : ''}" 
+		title="Thêm emoji"
+	>
 		<Smile size={20} />
 	</button>
-	<button class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Thêm vị trí">
-		<MapPin size={20} />
-	</button>
-	<button class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Gắn thẻ">
-		<Tag size={20} />
+	
+	<!-- Hashtag -->
+	<button 
+		bind:this={hashtagButtonElement}
+		on:click={() => showHashtagSuggester = !showHashtagSuggester}
+		class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors {showHashtagSuggester ? 'bg-blue-50 text-blue-600' : ''}" 
+		title="Thêm hashtag"
+	>
+		<Hash size={20} />
 	</button>
 </div>
+
+<!-- Emoji Picker Popup -->
+{#if showEmojiPicker}
+	<EmojiPicker 
+		show={showEmojiPicker}
+		buttonElement={emojiButtonElement}
+		onSelect={onEmojiSelect}
+		onClose={() => showEmojiPicker = false}
+	/>
+{/if}
+
+<!-- Hashtag Suggester Popup -->
+{#if showHashtagSuggester}
+	<HashtagSuggester 
+		show={showHashtagSuggester}
+		buttonElement={hashtagButtonElement}
+		onSelect={onHashtagSelect}
+		onClose={() => showHashtagSuggester = false}
+	/>
+{/if}

@@ -6,6 +6,8 @@
 	import AiPanel from '$lib/components/post-editor/AiPanel.svelte';
 	import EditorToolbar from '$lib/components/post-editor/EditorToolbar.svelte';
 	import InfoPanel from '$lib/components/post-editor/InfoPanel.svelte';
+	import CharacterCounter from '$lib/components/post-editor/CharacterCounter.svelte';
+	import { insertAtCursor } from '$lib/utils/textFormatting';
 	import PostOptions from '$lib/components/post-editor/PostOptions.svelte';
 	import PageSelector from '$lib/components/post-editor/PageSelector.svelte';
 	import ImageUploader from '$lib/components/post-editor/ImageUploader.svelte';
@@ -34,6 +36,29 @@
 	let mediaType = 'image'; // 'image' or 'video'
 	let fetchingLink = false;
 	let postMode = 'album'; // 'album' | 'individual'
+	let textareaElement = null;
+	
+	// Handle emoji selection
+	function handleEmojiSelect(emoji) {
+		if (textareaElement) {
+			insertAtCursor(textareaElement, emoji);
+			content = textareaElement.value;
+		}
+	}
+	
+	// Handle hashtag selection
+	function handleHashtagSelect(hashtagsText) {
+		if (textareaElement) {
+			const start = textareaElement.selectionStart;
+			const value = textareaElement.value;
+			const charBefore = value[start - 1];
+			
+			// Thêm space nếu cần
+			const prefix = (!charBefore || charBefore === '\n' || charBefore === ' ') ? '' : '\n';
+			insertAtCursor(textareaElement, prefix + hashtagsText + ' ');
+			content = textareaElement.value;
+		}
+	}
 	
 	// Auto detect links in content
 	$: {
@@ -316,11 +341,16 @@
 			<!-- Main Editor Card -->
 			<div class="bg-white rounded-lg border border-gray-200 shadow-sm">
 				<!-- Toolbar -->
-				<EditorToolbar onAiClick={() => showAiPanel = !showAiPanel} />
+				<EditorToolbar 
+					onAiClick={() => showAiPanel = !showAiPanel}
+					onEmojiSelect={handleEmojiSelect}
+					onHashtagSelect={handleHashtagSelect}
+				/>
 				
 				<!-- Content Editor -->
 				<div class="p-3">
 					<textarea
+						bind:this={textareaElement}
 						bind:value={content}
 						placeholder="Bạn đang nghĩ gì?"
 						rows="6"
@@ -384,7 +414,7 @@
 					<Clock size={12} />
 					<span>Lưu lần cuối: Chưa lưu</span>
 				</div>
-				<span>{content.length} ký tự</span>
+				<CharacterCounter count={content.length} />
 			</div>
 		</div>
 	</div>

@@ -86,6 +86,12 @@ func main() {
 	// Logs routes
 	apiRouter.HandleFunc("/logs", handler.GetPostLogs).Methods("GET")
 	
+	// Hashtag routes
+	apiRouter.HandleFunc("/hashtags/search", handler.SearchHashtags).Methods("GET")
+	apiRouter.HandleFunc("/hashtags/saved", handler.GetSavedHashtags).Methods("GET")
+	apiRouter.HandleFunc("/hashtags/saved", handler.SaveHashtags).Methods("POST")
+	apiRouter.HandleFunc("/hashtags/saved", handler.DeleteSavedHashtag).Methods("DELETE")
+	
 	// Upload route
 	apiRouter.HandleFunc("/upload", handler.UploadImage).Methods("POST")
 	

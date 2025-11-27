@@ -96,5 +96,14 @@ export const api = {
 		}
 		
 		return response.json();
-	}
+	},
+	
+	// Hashtags
+	searchHashtags: (query) => request(`/api/hashtags/search?q=${encodeURIComponent(query)}`),
+	getSavedHashtags: () => request('/api/hashtags/saved'),
+	saveHashtags: (hashtags) => request('/api/hashtags/saved', {
+		method: 'POST',
+		body: JSON.stringify({ hashtags })
+	}),
+	deleteSavedHashtag: (id) => request(`/api/hashtags/saved?id=${id}`, { method: 'DELETE' })
 };

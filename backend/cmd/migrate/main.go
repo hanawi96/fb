@@ -4,41 +4,52 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
-	dbURL := "postgresql://postgres:yendev96@localhost:5432/fbscheduler?sslmode=disable"
+	// Database connection
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://postgres:postgres@localhost:5432/fbscheduler?sslmode=disable"
+	}
 
-	fmt.Println("Connecting to database...")
-
-	// Connect to database
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Failed to connect to database:", err)
 	}
 	defer db.Close()
 
-	// Run migration 002
+	// Test connection
+	if err := db.Ping(); err != nil {
+		log.Fatal("Failed to ping database:", err)
+	}
+
+	fmt.Println("Connected to database successfully!")
+
+	// Run migration
 	migration := `
-CREATE TABLE IF NOT EXISTS users (
+-- Create saved_hashtags table
+CREATE TABLE IF NOT EXISTS saved_hashtags (
     id SERIAL PRIMARY KEY,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    user_id INTEGER NOT NULL,
+    hashtag VARCHAR(255) NOT NULL,
+    media_count BIGINT DEFAULT 0,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(user_id, hashtag)
 );
 
-INSERT INTO users (username, password_hash) 
-VALUES ('admin', '$2a$10$VT5rjDMF5nTuON1h8epin.eZpeaWwFruCfM6KddqBeKRYkHatwQgW')
-ON CONFLICT (username) DO NOTHING;
+CREATE INDEX IF NOT EXISTS idx_saved_hashtags_user_id ON saved_hashtags(user_id);
 `
 
+	fmt.Println("Running migration...")
 	_, err = db.Exec(migration)
 	if err != nil {
 		log.Fatal("Migration failed:", err)
 	}
 
 	fmt.Println("✅ Migration completed successfully!")
-	fmt.Println("✅ Default user created: admin / admin123")
+	fmt.Println("Table 'saved_hashtags' created.")
 }
