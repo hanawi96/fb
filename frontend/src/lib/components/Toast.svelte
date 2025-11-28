@@ -94,7 +94,7 @@
 </script>
 
 <div
-	class="fixed bottom-6 right-6 z-50 max-w-sm"
+	class="fixed bottom-6 right-6 z-[100] max-w-sm"
 	transition:fly={{ y: 50, duration: 400 }}
 	on:mouseenter={pauseTimer}
 	on:mouseleave={resumeTimer}

@@ -45,6 +45,50 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("✅ Got user access token: %s...", userToken[:20])
 	
+	// Get Facebook user info
+	fbUser, err := h.fbClient.GetUserInfo(userToken)
+	fbUserID := "unknown"
+	fbUserName := "Unknown User"
+	fbPictureURL := ""
+	if err != nil {
+		log.Printf("⚠️ Could not get user info: %v", err)
+	} else {
+		fbUserID = fbUser.ID
+		fbUserName = fbUser.Name
+		fbPictureURL = fbUser.PictureURL
+	}
+	
+	// Create or update facebook_account
+	account, err := h.store.GetAccountByFbUserID(fbUserID)
+	if err != nil || account == nil {
+		// Create new account
+		account = &db.FacebookAccount{
+			FbUserID:          fbUserID,
+			FbUserName:        fbUserName,
+			ProfilePictureURL: fbPictureURL,
+			AccessToken:       userToken,
+			MaxPages:          5,
+			MaxPostsPerDay:    20,
+			Status:            "active",
+		}
+		if err := h.store.CreateAccount(account); err != nil {
+			log.Printf("⚠️ Failed to create account: %v", err)
+		} else {
+			log.Printf("✅ Created new Facebook account: %s (%s)", account.FbUserName, account.FbUserID)
+		}
+	} else {
+		// Update existing account token
+		account.AccessToken = userToken
+		account.FbUserName = fbUserName
+		account.ProfilePictureURL = fbPictureURL
+		account.Status = "active"
+		if err := h.store.UpdateAccount(account); err != nil {
+			log.Printf("⚠️ Failed to update account: %v", err)
+		} else {
+			log.Printf("🔄 Updated Facebook account: %s", account.FbUserName)
+		}
+	}
+	
 	// Get user's pages
 	pages, err := h.fbClient.GetUserPages(userToken)
 	if err != nil {
@@ -53,13 +97,9 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Log the number of pages received
 	log.Printf("📊 Received %d pages from Facebook", len(pages))
-	for i, p := range pages {
-		log.Printf("  Page %d: ID=%s, Name=%s, Category=%s", i+1, p.ID, p.Name, p.Category)
-	}
 	
-	// Convert to response format
+	// Convert to response format - include account_id
 	responsePages := make([]map[string]interface{}, 0, len(pages))
 	for _, pageInfo := range pages {
 		pageData := map[string]interface{}{
@@ -68,12 +108,13 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 			"access_token":        pageInfo.AccessToken,
 			"category":            pageInfo.Category,
 			"profile_picture_url": pageInfo.Picture.Data.URL,
+			"account_id":          account.ID,
+			"account_name":        account.FbUserName,
 		}
-		
 		responsePages = append(responsePages, pageData)
 	}
 	
-	// Update access tokens for existing pages (tokens may have changed)
+	// Update access tokens for existing pages
 	existingPages, _ := h.store.GetPages()
 	existingPageMap := make(map[string]bool)
 	for _, p := range existingPages {
@@ -81,7 +122,6 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	for _, pageInfo := range pages {
-		// Only update if page already exists in DB
 		if existingPageMap[pageInfo.ID] {
 			page := &db.Page{
 				PageID:            pageInfo.ID,
@@ -90,11 +130,8 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 				Category:          pageInfo.Category,
 				ProfilePictureURL: pageInfo.Picture.Data.URL,
 			}
-			
 			if err := h.store.CreateOrUpdatePage(page); err != nil {
 				log.Printf("⚠️ Warning: Failed to update token for page %s: %v", page.PageName, err)
-			} else {
-				log.Printf("🔄 Updated access token for existing page: %s", page.PageName)
 			}
 		}
 	}
@@ -102,9 +139,11 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 	log.Printf("✅ Returned %d pages to frontend for selection", len(responsePages))
 	
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"message": "Successfully fetched pages",
-		"pages":   responsePages,
-		"count":   len(responsePages),
+		"message":      "Successfully fetched pages",
+		"pages":        responsePages,
+		"count":        len(responsePages),
+		"account_id":   account.ID,
+		"account_name": account.FbUserName,
 	})
 }
 
@@ -136,10 +175,11 @@ func (h *Handler) DebugPages(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// SaveSelectedPages - Lưu các pages đã được user chọn
+// SaveSelectedPages - Lưu các pages đã được user chọn và gán vào account
 func (h *Handler) SaveSelectedPages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Pages []struct {
+		AccountID string `json:"account_id"`
+		Pages     []struct {
 			PageID            string `json:"page_id"`
 			PageName          string `json:"page_name"`
 			AccessToken       string `json:"access_token"`
@@ -147,39 +187,15 @@ func (h *Handler) SaveSelectedPages(w http.ResponseWriter, r *http.Request) {
 			ProfilePictureURL string `json:"profile_picture_url"`
 		} `json:"pages"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	
-	log.Printf("💾 Saving %d selected pages", len(req.Pages))
-	
-	// Get all existing pages
-	existingPages, err := h.store.GetPages()
-	if err != nil {
-		log.Printf("❌ Failed to get existing pages: %v", err)
-		respondError(w, http.StatusInternalServerError, "Failed to get existing pages")
-		return
-	}
-	
-	// Create map of selected page IDs
-	selectedPageIDs := make(map[string]bool)
-	for _, p := range req.Pages {
-		selectedPageIDs[p.PageID] = true
-	}
-	
-	// Delete pages that are not selected
-	for _, existingPage := range existingPages {
-		if !selectedPageIDs[existingPage.PageID] {
-			log.Printf("🗑️ Deleting unselected page: %s (ID: %s)", existingPage.PageName, existingPage.PageID)
-			if err := h.store.DeletePage(existingPage.ID); err != nil {
-				log.Printf("⚠️ Warning: Failed to delete page %s: %v", existingPage.PageName, err)
-			}
-		}
-	}
-	
-	// Save or update selected pages
+
+	log.Printf("💾 Saving %d selected pages for account %s", len(req.Pages), req.AccountID)
+
+	// Save or update selected pages and assign to account
 	savedPages := make([]db.Page, 0, len(req.Pages))
 	for _, pageData := range req.Pages {
 		page := &db.Page{
@@ -189,19 +205,28 @@ func (h *Handler) SaveSelectedPages(w http.ResponseWriter, r *http.Request) {
 			Category:          pageData.Category,
 			ProfilePictureURL: pageData.ProfilePictureURL,
 		}
-		
+
 		if err := h.store.CreateOrUpdatePage(page); err != nil {
 			log.Printf("❌ Failed to save page %s: %v", page.PageName, err)
 			respondError(w, http.StatusInternalServerError, "Failed to save page: "+err.Error())
 			return
 		}
-		
+
+		// Assign page to account if account_id provided
+		if req.AccountID != "" && page.ID != "" {
+			if err := h.store.AssignPageToAccount(page.ID, req.AccountID, true); err != nil {
+				log.Printf("⚠️ Failed to assign page %s to account: %v", page.PageName, err)
+			} else {
+				log.Printf("🔗 Assigned page %s to account %s", page.PageName, req.AccountID)
+			}
+		}
+
 		log.Printf("✅ Saved page: %s (ID: %s)", page.PageName, page.PageID)
 		savedPages = append(savedPages, *page)
 	}
-	
+
 	log.Printf("✅ Successfully saved %d pages", len(savedPages))
-	
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"message": "Successfully saved selected pages",
 		"pages":   savedPages,

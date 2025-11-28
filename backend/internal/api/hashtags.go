@@ -16,12 +16,12 @@ type HashtagSearchResponse struct {
 	Data []HashtagSearchResult `json:"data"`
 }
 
-type SavedHashtag struct {
-	ID         int       `json:"id"`
-	UserID     int       `json:"user_id"`
-	Hashtag    string    `json:"name"`
-	MediaCount int64     `json:"media_count"`
-	CreatedAt  time.Time `json:"created_at"`
+type HashtagSet struct {
+	ID        int       `json:"id"`
+	UserID    int       `json:"user_id"`
+	Name      string    `json:"name"`
+	Hashtags  string    `json:"hashtags"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // SearchHashtags searches for hashtags using Instagram Graph API
@@ -76,49 +76,45 @@ func (h *Handler) getMockHashtagResults(query string) HashtagSearchResponse {
 	}
 }
 
-// GetSavedHashtags returns user's saved hashtags
+// GetSavedHashtags returns user's saved hashtag sets
 func (h *Handler) GetSavedHashtags(w http.ResponseWriter, r *http.Request) {
-	// For now, use a default user_id of 1 (can be enhanced with proper auth later)
 	userID := 1
 
 	rows, err := h.db.Query(`
-		SELECT id, user_id, hashtag, media_count, created_at
-		FROM saved_hashtags
+		SELECT id, user_id, name, hashtags, created_at
+		FROM hashtag_sets
 		WHERE user_id = $1
 		ORDER BY created_at DESC
 	`, userID)
 
 	if err != nil {
-		http.Error(w, "Failed to fetch saved hashtags", http.StatusInternalServerError)
+		http.Error(w, "Failed to fetch hashtag sets", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()
 
-	var savedHashtags []SavedHashtag
+	var hashtagSets []HashtagSet
 	for rows.Next() {
-		var h SavedHashtag
-		err := rows.Scan(&h.ID, &h.UserID, &h.Hashtag, &h.MediaCount, &h.CreatedAt)
+		var hs HashtagSet
+		err := rows.Scan(&hs.ID, &hs.UserID, &hs.Name, &hs.Hashtags, &hs.CreatedAt)
 		if err != nil {
-			http.Error(w, "Failed to scan hashtag", http.StatusInternalServerError)
+			http.Error(w, "Failed to scan hashtag set", http.StatusInternalServerError)
 			return
 		}
-		savedHashtags = append(savedHashtags, h)
+		hashtagSets = append(hashtagSets, hs)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(savedHashtags)
+	json.NewEncoder(w).Encode(hashtagSets)
 }
 
-// SaveHashtags saves hashtags for user
+// SaveHashtags saves a hashtag set for user
 func (h *Handler) SaveHashtags(w http.ResponseWriter, r *http.Request) {
-	// For now, use a default user_id of 1 (can be enhanced with proper auth later)
 	userID := 1
 
 	var req struct {
-		Hashtags []struct {
-			Name       string `json:"name"`
-			MediaCount int64  `json:"media_count"`
-		} `json:"hashtags"`
+		Name     string `json:"name"`
+		Hashtags string `json:"hashtags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -126,46 +122,42 @@ func (h *Handler) SaveHashtags(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save each hashtag
-	for _, hashtag := range req.Hashtags {
-		_, err := h.db.Exec(`
-			INSERT INTO saved_hashtags (user_id, hashtag, media_count, created_at)
-			VALUES ($1, $2, $3, $4)
-			ON CONFLICT (user_id, hashtag) DO UPDATE
-			SET media_count = $3, created_at = $4
-		`, userID, hashtag.Name, hashtag.MediaCount, time.Now())
+	_, err := h.db.Exec(`
+		INSERT INTO hashtag_sets (user_id, name, hashtags, created_at)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (user_id, name) DO UPDATE
+		SET hashtags = $3, created_at = $4
+	`, userID, req.Name, req.Hashtags, time.Now())
 
-		if err != nil {
-			http.Error(w, "Failed to save hashtag", http.StatusInternalServerError)
-			return
-		}
+	if err != nil {
+		http.Error(w, "Failed to save hashtag set", http.StatusInternalServerError)
+		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Hashtags saved successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "Hashtag set saved successfully"})
 }
 
-// DeleteSavedHashtag deletes a saved hashtag
+// DeleteSavedHashtag deletes a saved hashtag set
 func (h *Handler) DeleteSavedHashtag(w http.ResponseWriter, r *http.Request) {
-	// For now, use a default user_id of 1 (can be enhanced with proper auth later)
 	userID := 1
 
 	hashtagID := r.URL.Query().Get("id")
 	if hashtagID == "" {
-		http.Error(w, "Hashtag ID is required", http.StatusBadRequest)
+		http.Error(w, "Hashtag set ID is required", http.StatusBadRequest)
 		return
 	}
 
 	_, err := h.db.Exec(`
-		DELETE FROM saved_hashtags
+		DELETE FROM hashtag_sets
 		WHERE id = $1 AND user_id = $2
 	`, hashtagID, userID)
 
 	if err != nil {
-		http.Error(w, "Failed to delete hashtag", http.StatusInternalServerError)
+		http.Error(w, "Failed to delete hashtag set", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"message": "Hashtag deleted successfully"})
+	json.NewEncoder(w).Encode(map[string]string{"message": "Hashtag set deleted successfully"})
 }

@@ -70,8 +70,32 @@ func (s *Store) GetPageByID(id string) (*Page, error) {
 }
 
 func (s *Store) DeletePage(id string) error {
+	// Lấy account_id của page trước khi xóa
+	var accountID sql.NullString
+	s.db.QueryRow(`
+		SELECT account_id FROM page_account_assignments WHERE page_id = $1 LIMIT 1
+	`, id).Scan(&accountID)
+
+	// Xóa page (cascade sẽ xóa assignment)
 	_, err := s.db.Exec("DELETE FROM pages WHERE id = $1", id)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Nếu có account, kiểm tra còn page nào không
+	if accountID.Valid && accountID.String != "" {
+		var count int
+		s.db.QueryRow(`
+			SELECT COUNT(*) FROM page_account_assignments WHERE account_id = $1
+		`, accountID.String).Scan(&count)
+
+		// Nếu không còn page nào, xóa account
+		if count == 0 {
+			s.db.Exec("DELETE FROM facebook_accounts WHERE id = $1", accountID.String)
+		}
+	}
+
+	return nil
 }
 
 func (s *Store) TogglePage(id string) error {

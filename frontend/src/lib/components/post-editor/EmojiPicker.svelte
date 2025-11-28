@@ -94,13 +94,6 @@
 </script>
 
 {#if show}
-	<!-- Backdrop -->
-	<div 
-		class="fixed inset-0 bg-black/5 backdrop-blur-[1px]"
-		style="z-index: 9998;"
-		on:click={onClose}
-	></div>
-	
 	<!-- Picker -->
 	<div 
 		bind:this={pickerElement}

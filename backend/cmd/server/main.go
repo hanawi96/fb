@@ -66,8 +66,15 @@ func main() {
 	
 	// Pages routes
 	apiRouter.HandleFunc("/pages", handler.GetPages).Methods("GET")
+	apiRouter.HandleFunc("/pages/unassigned", handler.GetUnassignedPages).Methods("GET")
 	apiRouter.HandleFunc("/pages/{id}", handler.DeletePage).Methods("DELETE")
 	apiRouter.HandleFunc("/pages/{id}/toggle", handler.TogglePage).Methods("PATCH")
+	apiRouter.HandleFunc("/pages/{id}/assignments", handler.GetPageAssignments).Methods("GET")
+	apiRouter.HandleFunc("/pages/{id}/assign", handler.AssignPageToAccount).Methods("POST")
+	apiRouter.HandleFunc("/pages/{id}/assign/{accountId}", handler.UnassignPageFromAccount).Methods("DELETE")
+	apiRouter.HandleFunc("/pages/{id}/primary", handler.SetPrimaryAccount).Methods("PUT")
+	apiRouter.HandleFunc("/pages/{id}/timeslots", handler.GetPageTimeSlots).Methods("GET")
+	apiRouter.HandleFunc("/pages/{id}/timeslots", handler.CreateTimeSlot).Methods("POST")
 	
 	// Posts routes
 	apiRouter.HandleFunc("/posts", handler.CreatePost).Methods("POST")
@@ -80,6 +87,9 @@ func main() {
 	// Schedule routes
 	apiRouter.HandleFunc("/schedule", handler.SchedulePost).Methods("POST")
 	apiRouter.HandleFunc("/schedule", handler.GetScheduledPosts).Methods("GET")
+	apiRouter.HandleFunc("/schedule/preview", handler.PreviewSchedule).Methods("POST")
+	apiRouter.HandleFunc("/schedule/smart", handler.ScheduleWithPreview).Methods("POST")
+	apiRouter.HandleFunc("/schedule/stats", handler.GetScheduleStats).Methods("GET")
 	apiRouter.HandleFunc("/schedule/{id}", handler.DeleteScheduledPost).Methods("DELETE")
 	apiRouter.HandleFunc("/schedule/{id}/retry", handler.RetryScheduledPost).Methods("POST")
 	
@@ -91,6 +101,26 @@ func main() {
 	apiRouter.HandleFunc("/hashtags/saved", handler.GetSavedHashtags).Methods("GET")
 	apiRouter.HandleFunc("/hashtags/saved", handler.SaveHashtags).Methods("POST")
 	apiRouter.HandleFunc("/hashtags/saved", handler.DeleteSavedHashtag).Methods("DELETE")
+
+	// Facebook Accounts routes (Multi-Account System)
+	apiRouter.HandleFunc("/accounts", handler.GetAccounts).Methods("GET")
+	apiRouter.HandleFunc("/accounts", handler.CreateAccount).Methods("POST")
+	apiRouter.HandleFunc("/accounts/{id}", handler.GetAccount).Methods("GET")
+	apiRouter.HandleFunc("/accounts/{id}", handler.UpdateAccount).Methods("PUT")
+	apiRouter.HandleFunc("/accounts/{id}", handler.DeleteAccount).Methods("DELETE")
+	apiRouter.HandleFunc("/accounts/{id}/pages", handler.GetAccountPages).Methods("GET")
+	apiRouter.HandleFunc("/accounts/{id}/refresh", handler.RefreshAccountToken).Methods("POST")
+
+	// Notifications routes
+	apiRouter.HandleFunc("/notifications", handler.GetNotifications).Methods("GET")
+	apiRouter.HandleFunc("/notifications/count", handler.GetUnreadCount).Methods("GET")
+	apiRouter.HandleFunc("/notifications/read-all", handler.MarkAllNotificationsRead).Methods("PUT")
+	apiRouter.HandleFunc("/notifications/{id}/read", handler.MarkNotificationRead).Methods("PUT")
+	apiRouter.HandleFunc("/notifications/{id}", handler.DeleteNotification).Methods("DELETE")
+
+	// Time Slots routes
+	apiRouter.HandleFunc("/timeslots/{id}", handler.UpdateTimeSlot).Methods("PUT")
+	apiRouter.HandleFunc("/timeslots/{id}", handler.DeleteTimeSlot).Methods("DELETE")
 	
 	// Upload route
 	apiRouter.HandleFunc("/upload", handler.UploadImage).Methods("POST")

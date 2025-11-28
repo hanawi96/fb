@@ -6,10 +6,16 @@ import (
 	"log"
 	"os"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	// Load .env file
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found")
+	}
+	
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -31,17 +37,17 @@ func main() {
 
 	// Run migration
 	migration := `
--- Create saved_hashtags table
-CREATE TABLE IF NOT EXISTS saved_hashtags (
+-- Create hashtag_sets table (groups of hashtags)
+CREATE TABLE IF NOT EXISTS hashtag_sets (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL,
-    hashtag VARCHAR(255) NOT NULL,
-    media_count BIGINT DEFAULT 0,
+    name VARCHAR(255) NOT NULL,
+    hashtags TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(user_id, hashtag)
+    UNIQUE(user_id, name)
 );
 
-CREATE INDEX IF NOT EXISTS idx_saved_hashtags_user_id ON saved_hashtags(user_id);
+CREATE INDEX IF NOT EXISTS idx_hashtag_sets_user_id ON hashtag_sets(user_id);
 `
 
 	fmt.Println("Running migration...")

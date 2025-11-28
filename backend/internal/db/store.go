@@ -13,6 +13,11 @@ func NewStore(db *sql.DB) *Store {
 	return &Store{db: db}
 }
 
+// DB returns the underlying database connection
+func (s *Store) DB() *sql.DB {
+	return s.db
+}
+
 // Models
 type Page struct {
 	ID                string     `json:"id"`

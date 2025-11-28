@@ -5,7 +5,8 @@
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { auth } from '$lib/stores/auth';
-	import { Home, Calendar, FileText, History, Facebook, LayoutDashboard, ChevronRight, LogOut, User, ChevronDown } from 'lucide-svelte';
+	import { Home, Calendar, FileText, History, Facebook, LayoutDashboard, ChevronRight, LogOut, User, ChevronDown, Users, Clock } from 'lucide-svelte';
+	import NotificationBell from '$lib/components/NotificationBell.svelte';
 	
 	let showUserMenu = false;
 	
@@ -26,7 +27,9 @@
 		{ href: '/posts/new', label: 'Tạo bài mới', icon: FileText },
 		{ href: '/schedule', label: 'Lịch đăng bài', icon: Calendar },
 		{ href: '/logs', label: 'Lịch sử', icon: History },
-		{ href: '/pages', label: 'Quản lý Pages', icon: Facebook }
+		{ href: '/pages', label: 'Quản lý Pages', icon: Facebook },
+		{ href: '/accounts', label: 'Quản lý Nick', icon: Users },
+		{ href: '/timeslots', label: 'Khung giờ', icon: Clock }
 	];
 	
 	$: currentPath = $page.url.pathname;
@@ -116,6 +119,11 @@
 					<span class="font-medium text-gray-900">
 						{navItems.find(item => item.href === currentPath)?.label || 'Dashboard'}
 					</span>
+				</div>
+				
+				<!-- Notifications & User menu -->
+				<div class="flex items-center gap-2">
+					<NotificationBell />
 				</div>
 				
 				<!-- User menu -->

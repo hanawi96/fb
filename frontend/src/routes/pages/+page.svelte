@@ -3,7 +3,8 @@
 	import { api } from '$lib/api';
 	import { toast } from '$lib/stores/toast';
 	import Toast from '$lib/components/Toast.svelte';
-	import { Trash2, Power, PowerOff, Plus, Facebook, CheckCircle2, XCircle } from 'lucide-svelte';
+	import { Trash2, Power, PowerOff, Plus, Facebook, CheckCircle2, XCircle, Clock, User } from 'lucide-svelte';
+	import TimeSlotEditor from '$lib/components/TimeSlotEditor.svelte';
 	
 	// Accept SvelteKit props
 	export let data = undefined;
@@ -13,9 +14,22 @@
 	let loading = true;
 	let connectingFacebook = false;
 	let showPageSelectionModal = false;
-	let loadingPages = false; // Loading state cho việc fetch pages từ Facebook
+	let loadingPages = false;
 	let availablePages = [];
 	let selectedPageIds = new Set();
+	
+	// Time Slot Editor
+	let showTimeSlotEditor = false;
+	let selectedPageForSlots = null;
+	
+	// Current account from OAuth
+	let currentAccountId = null;
+	let currentAccountName = null;
+	
+	function openTimeSlotEditor(page) {
+		selectedPageForSlots = page.id;
+		showTimeSlotEditor = true;
+	}
 	
 	onMount(async () => {
 		await loadPages();
@@ -79,12 +93,16 @@
 						const result = await api.facebookCallback(event.data.code);
 						console.log('📊 API result:', result);
 						
+						// Lưu account info
+						currentAccountId = result.account_id;
+						currentAccountName = result.account_name;
+						
 						// Chuẩn bị dữ liệu cho modal
 						availablePages = result.pages || [];
 						selectedPageIds = new Set(pages.map(p => p.page_id));
 						
 						console.log('📋 Available pages:', availablePages.length);
-						console.log('✅ Selected page IDs:', selectedPageIds);
+						console.log('👤 Account:', currentAccountName, currentAccountId);
 						
 					} catch (error) {
 						console.error('❌ Callback error:', error);
@@ -140,7 +158,8 @@
 			showPageSelectionModal = false;
 			toast.show(`Đang lưu ${selectedPages.length} pages...`, 'info');
 			
-			await api.saveSelectedPages(selectedPages);
+			// Gửi kèm account_id để gán pages vào account
+			await api.saveSelectedPages(selectedPages, currentAccountId);
 			
 			toast.show(`Đã lưu ${selectedPages.length} pages!`, 'success');
 			await loadPages();
@@ -300,6 +319,13 @@
 							{/if}
 						</button>
 						<button
+							on:click={() => openTimeSlotEditor(page)}
+							class="px-3 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+							title="Khung giờ đăng"
+						>
+							<Clock size={14} />
+						</button>
+						<button
 							on:click={() => deletePage(page.id)}
 							class="px-3 py-2 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
 							title="Xóa page"
@@ -422,3 +448,10 @@
 		</div>
 	</div>
 {/if}
+
+<!-- Time Slot Editor Modal -->
+<TimeSlotEditor 
+	bind:show={showTimeSlotEditor} 
+	pageId={selectedPageForSlots}
+	on:close={() => showTimeSlotEditor = false}
+/>

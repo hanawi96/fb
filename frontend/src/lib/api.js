@@ -41,9 +41,9 @@ export const api = {
 		method: 'POST',
 		body: JSON.stringify({ code })
 	}),
-	saveSelectedPages: (pages) => request('/api/auth/pages/save', {
+	saveSelectedPages: (pages, accountId) => request('/api/auth/pages/save', {
 		method: 'POST',
-		body: JSON.stringify({ pages })
+		body: JSON.stringify({ pages, account_id: accountId })
 	}),
 	
 	// Pages
@@ -101,9 +101,70 @@ export const api = {
 	// Hashtags
 	searchHashtags: (query) => request(`/api/hashtags/search?q=${encodeURIComponent(query)}`),
 	getSavedHashtags: () => request('/api/hashtags/saved'),
-	saveHashtags: (hashtags) => request('/api/hashtags/saved', {
+	saveHashtags: (data) => request('/api/hashtags/saved', {
 		method: 'POST',
-		body: JSON.stringify({ hashtags })
+		body: JSON.stringify(data)
 	}),
-	deleteSavedHashtag: (id) => request(`/api/hashtags/saved?id=${id}`, { method: 'DELETE' })
+	deleteSavedHashtag: (id) => request(`/api/hashtags/saved?id=${id}`, { method: 'DELETE' }),
+
+	// Facebook Accounts (Multi-Account)
+	getAccounts: () => request('/api/accounts'),
+	getAccount: (id) => request(`/api/accounts/${id}`),
+	createAccount: (data) => request('/api/accounts', {
+		method: 'POST',
+		body: JSON.stringify(data)
+	}),
+	updateAccount: (id, data) => request(`/api/accounts/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	}),
+	deleteAccount: (id) => request(`/api/accounts/${id}`, { method: 'DELETE' }),
+	getAccountPages: (id) => request(`/api/accounts/${id}/pages`),
+	refreshAccountToken: (id, token) => request(`/api/accounts/${id}/refresh`, {
+		method: 'POST',
+		body: JSON.stringify({ access_token: token })
+	}),
+
+	// Page Assignments
+	getPageAssignments: (pageId) => request(`/api/pages/${pageId}/assignments`),
+	assignPageToAccount: (pageId, accountId, isPrimary = true) => request(`/api/pages/${pageId}/assign`, {
+		method: 'POST',
+		body: JSON.stringify({ account_id: accountId, is_primary: isPrimary })
+	}),
+	unassignPage: (pageId, accountId) => request(`/api/pages/${pageId}/assign/${accountId}`, { method: 'DELETE' }),
+	setPrimaryAccount: (pageId, accountId) => request(`/api/pages/${pageId}/primary`, {
+		method: 'PUT',
+		body: JSON.stringify({ account_id: accountId })
+	}),
+	getUnassignedPages: () => request('/api/pages/unassigned'),
+
+	// Time Slots
+	getPageTimeSlots: (pageId) => request(`/api/pages/${pageId}/timeslots`),
+	createTimeSlot: (pageId, data) => request(`/api/pages/${pageId}/timeslots`, {
+		method: 'POST',
+		body: JSON.stringify(data)
+	}),
+	updateTimeSlot: (id, data) => request(`/api/timeslots/${id}`, {
+		method: 'PUT',
+		body: JSON.stringify(data)
+	}),
+	deleteTimeSlot: (id) => request(`/api/timeslots/${id}`, { method: 'DELETE' }),
+
+	// Schedule Preview
+	previewSchedule: (postId, pageIds, preferredDate) => request('/api/schedule/preview', {
+		method: 'POST',
+		body: JSON.stringify({ post_id: postId, page_ids: pageIds, preferred_date: preferredDate })
+	}),
+	scheduleWithPreview: (postId, pageIds, preferredDate, confirm = false) => request('/api/schedule/smart', {
+		method: 'POST',
+		body: JSON.stringify({ post_id: postId, page_ids: pageIds, preferred_date: preferredDate, confirm })
+	}),
+	getScheduleStats: (date) => request(`/api/schedule/stats?date=${date || ''}`),
+
+	// Notifications
+	getNotifications: (unreadOnly = false) => request(`/api/notifications?unread=${unreadOnly}`),
+	getUnreadCount: () => request('/api/notifications/count'),
+	markNotificationRead: (id) => request(`/api/notifications/${id}/read`, { method: 'PUT' }),
+	markAllNotificationsRead: () => request('/api/notifications/read-all', { method: 'PUT' }),
+	deleteNotification: (id) => request(`/api/notifications/${id}`, { method: 'DELETE' })
 };

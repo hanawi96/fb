@@ -1,0 +1,702 @@
+<script>
+	import { onMount } from 'svelte';
+	import { api } from '$lib/api';
+	import { toast } from '$lib/stores/toast';
+	import Toast from '$lib/components/Toast.svelte';
+	import { Clock, Plus, Trash2, X, Copy, Zap, Calendar, RotateCcw } from 'lucide-svelte';
+
+	let pages = [];
+	let loading = true;
+	let slotsMap = {}; // pageId -> slots[]
+
+	// Modal edit
+	let showModal = false;
+	let editingPage = null;
+	let saving = false;
+
+	// 2 bộ slots riêng biệt cho 2 mode
+	let dailySlots = [];
+	let customSlots = [];
+
+	// Chế độ hiện tại: 'daily' (hằng ngày) hoặc 'custom' (ngày riêng lẻ)
+	let scheduleMode = 'daily';
+
+	// Unique ID counter cho slots (tối ưu keyed each)
+	let slotIdCounter = 0;
+
+	// Copy modal
+	let showCopyModal = false;
+	let copyFromPageId = '';
+
+	const dayLabels = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+	const dayNumbers = [1, 2, 3, 4, 5, 6, 7];
+	const hours = Array.from({ length: 24 }, (_, i) => i);
+
+	// Quick Presets
+	const presets = [
+		{
+			name: 'Giờ vàng Facebook',
+			icon: '🔥',
+			description: '7h, 12h, 18h, 21h',
+			slots: [
+				{ start_hour: 7, end_hour: 8 },
+				{ start_hour: 12, end_hour: 13 },
+				{ start_hour: 18, end_hour: 19 },
+				{ start_hour: 21, end_hour: 22 }
+			]
+		},
+		{
+			name: 'Giờ hành chính',
+			icon: '💼',
+			description: '9h, 12h, 17h',
+			slots: [
+				{ start_hour: 9, end_hour: 10 },
+				{ start_hour: 12, end_hour: 13 },
+				{ start_hour: 17, end_hour: 18 }
+			]
+		},
+		{
+			name: 'Buổi tối',
+			icon: '🌙',
+			description: '19h, 21h',
+			slots: [
+				{ start_hour: 19, end_hour: 20 },
+				{ start_hour: 21, end_hour: 22 }
+			]
+		},
+		{
+			name: 'Cả ngày',
+			icon: '☀️',
+			description: '8h, 11h, 14h, 17h, 20h',
+			slots: [
+				{ start_hour: 8, end_hour: 9 },
+				{ start_hour: 11, end_hour: 12 },
+				{ start_hour: 14, end_hour: 15 },
+				{ start_hour: 17, end_hour: 18 },
+				{ start_hour: 20, end_hour: 21 }
+			]
+		}
+	];
+
+	onMount(async () => {
+		await loadData();
+	});
+
+	async function loadData() {
+		try {
+			const result = await api.getPages();
+			pages = result || [];
+			for (const page of pages) {
+				const slots = await api.getPageTimeSlots(page.id);
+				slotsMap[page.id] = slots || [];
+			}
+			slotsMap = slotsMap;
+		} catch (e) {
+			pages = [];
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Reactive: đếm slots theo ngày cho mỗi page (force re-render khi slotsMap thay đổi)
+	$: slotCountsByPage = pages.reduce((acc, page) => {
+		acc[page.id] = {};
+		const slots = slotsMap[page.id] || [];
+		for (const day of dayNumbers) {
+			acc[page.id][day] = slots.filter((s) => s.days_of_week?.includes(day)).length;
+		}
+		return acc;
+	}, {});
+
+	// Kiểm tra mode dựa trên data
+	function detectScheduleMode(slots) {
+		if (slots.length === 0) return 'daily';
+		const allSlotsHaveAllDays = slots.every(
+			(s) => s.days_of_week?.length === 7 && dayNumbers.every((d) => s.days_of_week.includes(d))
+		);
+		return allSlotsHaveAllDays ? 'daily' : 'custom';
+	}
+
+	function openEdit(page) {
+		editingPage = page;
+		slotIdCounter = 0;
+
+		const existingSlots = slotsMap[page.id] || [];
+		const detectedMode = detectScheduleMode(existingSlots);
+
+		// Load data vào đúng mode, mode còn lại để trống
+		if (detectedMode === 'daily') {
+			dailySlots = existingSlots.map((s) => ({
+				...JSON.parse(JSON.stringify(s)),
+				_uid: ++slotIdCounter
+			}));
+			customSlots = [];
+		} else {
+			customSlots = existingSlots.map((s) => ({
+				...JSON.parse(JSON.stringify(s)),
+				_uid: ++slotIdCounter
+			}));
+			dailySlots = [];
+		}
+
+		scheduleMode = detectedMode;
+		showModal = true;
+	}
+
+	function closeModal() {
+		showModal = false;
+		editingPage = null;
+		dailySlots = [];
+		customSlots = [];
+	}
+
+	// Lấy slots của mode hiện tại
+	$: currentSlots = scheduleMode === 'daily' ? dailySlots : customSlots;
+
+	// Thêm slot mới (cho chế độ daily)
+	function addNewSlot() {
+		dailySlots = [
+			...dailySlots,
+			{
+				_uid: ++slotIdCounter,
+				id: null,
+				start_hour: 9,
+				end_hour: 10,
+				days_of_week: [1, 2, 3, 4, 5, 6, 7],
+				isNew: true
+			}
+		];
+	}
+
+	// Thêm slot cho ngày cụ thể (chế độ custom)
+	function addSlotForDay(day) {
+		customSlots = [
+			...customSlots,
+			{
+				_uid: ++slotIdCounter,
+				id: null,
+				start_hour: 9,
+				end_hour: 10,
+				days_of_week: [day],
+				isNew: true
+			}
+		];
+	}
+
+	function removeSlot(uid) {
+		if (scheduleMode === 'daily') {
+			dailySlots = dailySlots.filter((s) => s._uid !== uid);
+		} else {
+			customSlots = customSlots.filter((s) => s._uid !== uid);
+		}
+	}
+
+	// Reactive: slots được nhóm theo ngày cho custom mode
+	$: slotsByDay = dayNumbers.reduce((acc, day) => {
+		acc[day] = customSlots.filter((slot) => slot.days_of_week?.includes(day));
+		return acc;
+	}, {});
+
+	// Chuyển đổi chế độ - chỉ đổi view, không thay đổi data
+	function switchMode(mode) {
+		scheduleMode = mode;
+	}
+
+	// Áp dụng preset
+	function applyPreset(preset) {
+		if (scheduleMode === 'daily') {
+			dailySlots = preset.slots.map((s) => ({
+				_uid: ++slotIdCounter,
+				id: null,
+				start_hour: s.start_hour,
+				end_hour: s.end_hour,
+				days_of_week: [1, 2, 3, 4, 5, 6, 7],
+				isNew: true
+			}));
+		} else {
+			const newSlots = [];
+			for (const day of dayNumbers) {
+				for (const s of preset.slots) {
+					newSlots.push({
+						_uid: ++slotIdCounter,
+						id: null,
+						start_hour: s.start_hour,
+						end_hour: s.end_hour,
+						days_of_week: [day],
+						isNew: true
+					});
+				}
+			}
+			customSlots = newSlots;
+		}
+	}
+
+	// Reset slots của mode hiện tại
+	function resetSlots() {
+		if (scheduleMode === 'daily') {
+			dailySlots = [];
+		} else {
+			customSlots = [];
+		}
+	}
+
+	// Copy từ page khác
+	function openCopyModal() {
+		copyFromPageId = '';
+		showCopyModal = true;
+	}
+
+	function closeCopyModal() {
+		showCopyModal = false;
+		copyFromPageId = '';
+	}
+
+	function confirmCopy() {
+		if (!copyFromPageId) return;
+
+		const sourceSlots = slotsMap[copyFromPageId] || [];
+
+		if (sourceSlots.length === 0) {
+			toast.show('Page nguồn chưa có khung giờ nào', 'error');
+			return;
+		}
+
+		// Copy vào mode hiện tại
+		const copiedSlots = sourceSlots.map((s) => ({
+			_uid: ++slotIdCounter,
+			id: null,
+			start_hour: getSlotHour(s, 'start'),
+			end_hour: getSlotHour(s, 'end'),
+			days_of_week: [...(s.days_of_week || [1, 2, 3, 4, 5, 6, 7])],
+			isNew: true
+		}));
+
+		if (scheduleMode === 'daily') {
+			dailySlots = copiedSlots;
+		} else {
+			customSlots = copiedSlots;
+		}
+
+		closeCopyModal();
+		toast.show(`Đã copy ${copiedSlots.length} khung giờ`, 'success');
+	}
+
+	// Lưu thay đổi - chỉ lưu slots của mode đang active
+	async function saveChanges() {
+		saving = true;
+		try {
+			const pageId = editingPage.id;
+			const oldSlots = slotsMap[pageId] || [];
+			const slotsToSave = scheduleMode === 'daily' ? dailySlots : customSlots;
+
+			// Xóa TẤT CẢ slots cũ (vì chỉ giữ 1 mode)
+			for (const old of oldSlots) {
+				await api.deleteTimeSlot(old.id);
+			}
+
+			// Thêm slots mới của mode hiện tại
+			for (const slot of slotsToSave) {
+				const startTime = `${String(slot.start_hour ?? parseInt(slot.start_time)).padStart(2, '0')}:00`;
+				const endTime = `${String(slot.end_hour ?? parseInt(slot.end_time)).padStart(2, '0')}:00`;
+
+				await api.createTimeSlot(pageId, {
+					start_time: startTime,
+					end_time: endTime,
+					days_of_week: slot.days_of_week,
+					slot_name: ''
+				});
+			}
+
+			// Reload slots từ server
+			const freshSlots = await api.getPageTimeSlots(pageId);
+			slotsMap[pageId] = freshSlots || [];
+			slotsMap = { ...slotsMap };
+			toast.show('Đã lưu khung giờ', 'success');
+			closeModal();
+		} catch (e) {
+			toast.show('Lỗi lưu: ' + e.message, 'error');
+		} finally {
+			saving = false;
+		}
+	}
+
+	function getSlotHour(slot, type) {
+		if (type === 'start') {
+			return slot.start_hour ?? parseInt(slot.start_time) ?? 9;
+		}
+		return slot.end_hour ?? parseInt(slot.end_time) ?? 10;
+	}
+
+
+</script>
+
+<svelte:head>
+	<title>Khung giờ đăng bài - FB Scheduler</title>
+</svelte:head>
+
+{#if $toast}
+	<Toast message={$toast.message} type={$toast.type} onClose={() => toast.hide()} />
+{/if}
+
+<div class="w-full">
+	<div class="mb-6">
+		<h1 class="text-2xl font-semibold text-gray-900">Khung giờ đăng bài</h1>
+		<p class="text-sm text-gray-500 mt-1">Cài đặt khung giờ đăng bài theo ngày cho từng page</p>
+	</div>
+
+	{#if loading}
+		<div class="flex justify-center py-12">
+			<div class="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+		</div>
+	{:else if pages.length === 0}
+		<div class="bg-gray-50 rounded-lg p-8 text-center border border-gray-200">
+			<Clock size={32} class="text-gray-400 mx-auto mb-3" />
+			<p class="text-gray-600">Chưa có page nào. Hãy kết nối Facebook trước.</p>
+		</div>
+	{:else}
+		<div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+			<table class="w-full text-sm">
+				<thead class="bg-gray-50 border-b border-gray-200">
+					<tr>
+						<th class="text-left px-4 py-3 font-medium text-gray-600" style="width: 40%">Tên page</th>
+						{#each dayLabels as day}
+							<th class="text-center px-3 py-3 font-medium text-gray-500 text-xs">{day}</th>
+						{/each}
+						<th class="text-center px-4 py-3 font-medium text-gray-600">Thao tác</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each pages as page}
+						<tr class="border-b border-gray-100 hover:bg-gray-50">
+							<td class="px-4 py-3">
+								<div class="flex items-center gap-3">
+									<img
+										src={page.profile_picture_url || 'https://via.placeholder.com/36'}
+										alt=""
+										class="w-9 h-9 rounded-full"
+									/>
+									<div>
+										<div class="font-medium text-gray-900 text-sm">{page.page_name}</div>
+										<div class="text-xs text-gray-500">{page.category || ''}</div>
+									</div>
+								</div>
+							</td>
+							{#each dayNumbers as day}
+								<td class="text-center px-3 py-3">
+									<span
+										class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium
+										{(slotCountsByPage[page.id]?.[day] || 0) > 0 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}"
+									>
+										{slotCountsByPage[page.id]?.[day] || 0}
+									</span>
+								</td>
+							{/each}
+							<td class="text-center px-4 py-3">
+								<button
+									on:click={() => openEdit(page)}
+									class="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+								>
+									Chỉnh sửa
+								</button>
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		</div>
+	{/if}
+</div>
+
+<!-- Modal Edit -->
+{#if showModal && editingPage}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" on:click={closeModal}>
+		<div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden" on:click|stopPropagation>
+			<!-- Header -->
+			<div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50">
+				<div class="flex items-center gap-3">
+					<img
+						src={editingPage.profile_picture_url || 'https://via.placeholder.com/44'}
+						alt=""
+						class="w-11 h-11 rounded-full ring-2 ring-white shadow"
+					/>
+					<div>
+						<h2 class="font-semibold text-gray-900">{editingPage.page_name}</h2>
+						<p class="text-xs text-gray-500">Thiết lập khung giờ đăng bài</p>
+					</div>
+				</div>
+				<button on:click={closeModal} class="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-white/50">
+					<X size={20} />
+				</button>
+			</div>
+
+			<!-- Content -->
+			<div class="p-6 overflow-y-auto max-h-[calc(90vh-180px)]">
+				<!-- Mode Switcher -->
+				<div class="flex items-center gap-2 p-1 bg-gray-100 rounded-xl mb-5">
+					<button
+						on:click={() => switchMode('daily')}
+						class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all
+							{scheduleMode === 'daily' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}"
+					>
+						<RotateCcw size={16} />
+						<span>Hằng ngày</span>
+					</button>
+					<button
+						on:click={() => switchMode('custom')}
+						class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all
+							{scheduleMode === 'custom' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}"
+					>
+						<Calendar size={16} />
+						<span>Tùy chỉnh theo ngày</span>
+					</button>
+				</div>
+
+				<!-- Quick Actions -->
+				<div class="flex items-center gap-2 mb-5">
+					{#if pages.length > 1}
+						<button
+							on:click={openCopyModal}
+							class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+						>
+							<Copy size={14} />
+							<span>Copy từ page khác</span>
+						</button>
+					{/if}
+					{#if currentSlots.length > 0}
+						<button
+							on:click={resetSlots}
+							class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+						>
+							<Trash2 size={14} />
+							<span>Xóa tất cả</span>
+						</button>
+					{/if}
+				</div>
+
+				<!-- Quick Presets -->
+				<div class="mb-5">
+					<div class="flex items-center gap-2 mb-3">
+						<Zap size={16} class="text-amber-500" />
+						<span class="text-sm font-medium text-gray-700">Mẫu nhanh</span>
+					</div>
+					<div class="grid grid-cols-2 gap-2">
+						{#each presets as preset}
+							<button
+								on:click={() => applyPreset(preset)}
+								class="flex items-center gap-3 p-3 text-left bg-gray-50 border border-gray-200 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all group"
+							>
+								<span class="text-xl">{preset.icon}</span>
+								<div class="flex-1 min-w-0">
+									<div class="text-sm font-medium text-gray-900 group-hover:text-blue-700">{preset.name}</div>
+									<div class="text-xs text-gray-500">{preset.description}</div>
+								</div>
+							</button>
+						{/each}
+					</div>
+				</div>
+
+				<!-- Slots List -->
+				{#if scheduleMode === 'daily'}
+					<!-- Chế độ hằng ngày: hiển thị danh sách slots đơn giản -->
+					<div class="space-y-3">
+						{#if dailySlots.length === 0}
+							<div class="text-center py-8 text-gray-500">
+								<Clock size={32} class="mx-auto mb-2 text-gray-300" />
+								<p class="text-sm">Chưa có khung giờ nào</p>
+								<p class="text-xs text-gray-400 mt-1">Chọn mẫu nhanh hoặc thêm thủ công</p>
+							</div>
+						{:else}
+							{#each dailySlots as slot (slot._uid)}
+								<div class="flex items-center gap-3 p-3 bg-white border border-gray-200 rounded-xl">
+									<div class="flex items-center gap-2">
+										<select
+											bind:value={slot.start_hour}
+											on:change={() => (slot.start_hour = parseInt(slot.start_hour))}
+											class="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+										>
+											{#each hours as h}
+												<option value={h}>{String(h).padStart(2, '0')}:00</option>
+											{/each}
+										</select>
+										<span class="text-gray-400 font-medium">→</span>
+										<select
+											bind:value={slot.end_hour}
+											on:change={() => (slot.end_hour = parseInt(slot.end_hour))}
+											class="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+										>
+											{#each hours as h}
+												<option value={h}>{String(h).padStart(2, '0')}:00</option>
+											{/each}
+										</select>
+									</div>
+									<div class="flex-1"></div>
+									<button
+										on:click={() => removeSlot(slot._uid)}
+										class="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+									>
+										<Trash2 size={18} />
+									</button>
+								</div>
+							{/each}
+						{/if}
+					</div>
+
+					<button
+						on:click={addNewSlot}
+						class="w-full mt-4 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 text-gray-600 rounded-xl hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-all"
+					>
+						<Plus size={18} />
+						<span class="font-medium">Thêm khung giờ</span>
+					</button>
+				{:else}
+					<!-- Chế độ tùy chỉnh: hiển thị theo từng ngày -->
+					<div class="space-y-4">
+						{#each dayNumbers as day (day)}
+							<div class="border border-gray-200 rounded-xl overflow-hidden">
+								<!-- Day header -->
+								<div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+									<div class="flex items-center gap-2">
+										<span class="w-8 h-8 flex items-center justify-center bg-blue-600 text-white text-xs font-bold rounded-lg">
+											{dayLabels[day - 1]}
+										</span>
+										<span class="text-sm font-medium text-gray-700">
+											{day === 7 ? 'Chủ nhật' : `Thứ ${day + 1}`}
+										</span>
+									</div>
+									<span class="text-xs text-gray-500">{(slotsByDay[day] || []).length} khung giờ</span>
+								</div>
+
+								<!-- Slots for this day -->
+								<div class="p-3 space-y-2">
+									{#if !slotsByDay[day] || slotsByDay[day].length === 0}
+										<div class="text-center py-4 text-gray-400 text-sm">
+											Chưa có khung giờ
+										</div>
+									{:else}
+										{#each slotsByDay[day] as slot (slot._uid)}
+											<div class="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+												<select
+													bind:value={slot.start_hour}
+													on:change={() => (slot.start_hour = parseInt(slot.start_hour))}
+													class="px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+												>
+													{#each hours as h}
+														<option value={h}>{String(h).padStart(2, '0')}:00</option>
+													{/each}
+												</select>
+												<span class="text-gray-400 text-sm">→</span>
+												<select
+													bind:value={slot.end_hour}
+													on:change={() => (slot.end_hour = parseInt(slot.end_hour))}
+													class="px-2 py-1.5 bg-white border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+												>
+													{#each hours as h}
+														<option value={h}>{String(h).padStart(2, '0')}:00</option>
+													{/each}
+												</select>
+												<div class="flex-1"></div>
+												<button
+													on:click={() => removeSlot(slot._uid)}
+													class="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+												>
+													<Trash2 size={16} />
+												</button>
+											</div>
+										{/each}
+									{/if}
+
+									<!-- Add slot for this day -->
+									<button
+										on:click={() => addSlotForDay(day)}
+										class="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-blue-600 border border-dashed border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
+									>
+										<Plus size={14} />
+										<span>Thêm giờ</span>
+									</button>
+								</div>
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Footer -->
+			<div class="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center gap-3">
+				<button
+					on:click={closeModal}
+					class="px-5 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-xl transition-colors"
+				>
+					Hủy
+				</button>
+				<button
+					on:click={saveChanges}
+					disabled={saving}
+					class="flex-1 px-5 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-xl hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+				>
+					{#if saving}
+						<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+					{/if}
+					<span>Lưu thay đổi</span>
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Copy Modal -->
+{#if showCopyModal}
+	<!-- svelte-ignore a11y-click-events-have-key-events -->
+	<!-- svelte-ignore a11y-no-static-element-interactions -->
+	<div class="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4" on:click={closeCopyModal}>
+		<div class="bg-white rounded-xl shadow-xl w-full max-w-sm" on:click|stopPropagation>
+			<div class="px-5 py-4 border-b border-gray-100">
+				<h3 class="font-semibold text-gray-900">Copy khung giờ</h3>
+				<p class="text-xs text-gray-500 mt-1">Chọn page nguồn để copy cấu hình</p>
+			</div>
+			<div class="p-5">
+				<div class="space-y-2">
+					{#each pages.filter(p => p.id !== editingPage?.id) as page}
+						<label
+							class="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors
+								{copyFromPageId === page.id ? 'border-blue-500 bg-blue-50' : ''}"
+						>
+							<input
+								type="radio"
+								name="copyFrom"
+								value={page.id}
+								bind:group={copyFromPageId}
+								class="w-4 h-4 text-blue-600"
+							/>
+							<img
+								src={page.profile_picture_url || 'https://via.placeholder.com/32'}
+								alt=""
+								class="w-8 h-8 rounded-full"
+							/>
+							<div class="flex-1 min-w-0">
+								<div class="text-sm font-medium text-gray-900 truncate">{page.page_name}</div>
+								<div class="text-xs text-gray-500">{(slotsMap[page.id] || []).length} khung giờ</div>
+							</div>
+						</label>
+					{/each}
+				</div>
+			</div>
+			<div class="px-5 py-4 border-t border-gray-100 bg-gray-50 flex gap-3">
+				<button
+					on:click={closeCopyModal}
+					class="flex-1 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-200 rounded-lg transition-colors"
+				>
+					Hủy
+				</button>
+				<button
+					on:click={confirmCopy}
+					disabled={!copyFromPageId}
+					class="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+				>
+					Copy
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

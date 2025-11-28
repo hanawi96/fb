@@ -202,20 +202,22 @@ func (h *Handler) PublishPost(w http.ResponseWriter, r *http.Request) {
 					var singleErr error
 					
 					if len(preloadedMedia) > imgIdx {
-						singleFbPostID, singleErr = h.fbClient.PostToPageWithData(
+						singleFbPostID, singleErr = h.fbClient.PostToPageWithDataAndPlace(
 							page.PageID,
 							page.AccessToken,
 							req.Content,
 							[][]byte{preloadedMedia[imgIdx]},
 							req.MediaType,
+							"",
 						)
 					} else {
-						singleFbPostID, singleErr = h.fbClient.PostToPage(
+						singleFbPostID, singleErr = h.fbClient.PostToPageWithPlace(
 							page.PageID,
 							page.AccessToken,
 							req.Content,
 							[]string{mediaURL},
 							req.MediaType,
+							"",
 						)
 					}
 					
@@ -239,20 +241,22 @@ func (h *Handler) PublishPost(w http.ResponseWriter, r *http.Request) {
 			// Album mode (default): Post all images in one post
 			var fbPostID string
 			if len(preloadedMedia) > 0 {
-				fbPostID, err = h.fbClient.PostToPageWithData(
+				fbPostID, err = h.fbClient.PostToPageWithDataAndPlace(
 					page.PageID,
 					page.AccessToken,
 					req.Content,
 					preloadedMedia,
 					req.MediaType,
+					"",
 				)
 			} else {
-				fbPostID, err = h.fbClient.PostToPage(
+				fbPostID, err = h.fbClient.PostToPageWithPlace(
 					page.PageID,
 					page.AccessToken,
 					req.Content,
 					req.MediaURLs,
 					req.MediaType,
+					"",
 				)
 			}
 			

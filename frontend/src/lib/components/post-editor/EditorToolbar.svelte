@@ -27,7 +27,10 @@
 	<!-- Emoji Picker -->
 	<button 
 		bind:this={emojiButtonElement}
-		on:click={() => showEmojiPicker = !showEmojiPicker}
+		on:click={() => {
+			showEmojiPicker = !showEmojiPicker;
+			if (showEmojiPicker) showHashtagSuggester = false;
+		}}
 		class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors {showEmojiPicker ? 'bg-blue-50 text-blue-600' : ''}" 
 		title="Thêm emoji"
 	>
@@ -37,7 +40,10 @@
 	<!-- Hashtag -->
 	<button 
 		bind:this={hashtagButtonElement}
-		on:click={() => showHashtagSuggester = !showHashtagSuggester}
+		on:click={() => {
+			showHashtagSuggester = !showHashtagSuggester;
+			if (showHashtagSuggester) showEmojiPicker = false;
+		}}
 		class="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors {showHashtagSuggester ? 'bg-blue-50 text-blue-600' : ''}" 
 		title="Thêm hashtag"
 	>

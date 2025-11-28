@@ -95,6 +95,51 @@ func (c *Client) ExchangeCodeForToken(code, redirectURI string) (string, error) 
 	return result.AccessToken, nil
 }
 
+// UserInfo thông tin user Facebook
+type UserInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	PictureURL string `json:"picture_url"`
+}
+
+// GetUserInfo lấy thông tin user từ access token
+func (c *Client) GetUserInfo(accessToken string) (*UserInfo, error) {
+	apiURL := fmt.Sprintf("%s/me?access_token=%s&fields=id,name,picture.width(200).height(200)", GraphAPIURL, accessToken)
+
+	resp, err := c.httpClient.Get(apiURL)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		ID      string `json:"id"`
+		Name    string `json:"name"`
+		Picture struct {
+			Data struct {
+				URL string `json:"url"`
+			} `json:"data"`
+		} `json:"picture"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("facebook error: %s", result.Error.Message)
+	}
+
+	return &UserInfo{
+		ID:         result.ID,
+		Name:       result.Name,
+		PictureURL: result.Picture.Data.URL,
+	}, nil
+}
+
 // GetUserPages retrieves all pages managed by the user
 func (c *Client) GetUserPages(userAccessToken string) ([]PageInfo, error) {
 	allPages := []PageInfo{}
@@ -732,4 +777,504 @@ type PageInfo struct {
 			URL string `json:"url"`
 		} `json:"data"`
 	} `json:"picture"`
+}
+
+
+// PostToPageWithPlace posts content with optional place parameter
+func (c *Client) PostToPageWithPlace(pageID, accessToken, message string, mediaURLs []string, mediaType, placeID string) (string, error) {
+	// Delegate to existing functions but add place parameter
+	if len(mediaURLs) == 0 {
+		return c.postTextOnlyWithPlace(pageID, accessToken, message, placeID)
+	}
+	
+	if mediaType == "video" {
+		return c.postWithVideoAndPlace(pageID, accessToken, message, mediaURLs[0], placeID)
+	}
+	
+	if len(mediaURLs) == 1 {
+		return c.postWithSingleImageAndPlace(pageID, accessToken, message, mediaURLs[0], placeID)
+	}
+	
+	return c.postWithMultipleImagesAndPlace(pageID, accessToken, message, mediaURLs, placeID)
+}
+
+// PostToPageWithDataAndPlace posts with preloaded media data and place
+func (c *Client) PostToPageWithDataAndPlace(pageID, accessToken, message string, mediaData [][]byte, mediaType, placeID string) (string, error) {
+	if len(mediaData) == 0 {
+		return c.postTextOnlyWithPlace(pageID, accessToken, message, placeID)
+	}
+	
+	if mediaType == "video" {
+		return c.postVideoWithDataAndPlace(pageID, accessToken, message, mediaData[0], placeID)
+	}
+	
+	if len(mediaData) == 1 {
+		return c.postSingleImageWithDataAndPlace(pageID, accessToken, message, mediaData[0], placeID)
+	}
+	
+	return c.postMultipleImagesWithDataAndPlace(pageID, accessToken, message, mediaData, placeID)
+}
+
+// Helper functions with place parameter
+func (c *Client) postTextOnlyWithPlace(pageID, accessToken, message, tags string) (string, error) {
+	data := url.Values{}
+	data.Set("message", message)
+	data.Set("access_token", accessToken)
+	if tags != "" {
+		data.Set("tags", tags)
+	}
+	
+	resp, err := c.httpClient.PostForm(fmt.Sprintf("%s/%s/feed", GraphAPIURL, pageID), data)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	return c.parsePostResponse(resp)
+}
+
+func (c *Client) postWithSingleImageAndPlace(pageID, accessToken, message, imageURL, placeID string) (string, error) {
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	imageData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image: %w", err)
+	}
+	
+	return c.postSingleImageWithDataAndPlace(pageID, accessToken, message, imageData, placeID)
+}
+
+func (c *Client) postSingleImageWithDataAndPlace(pageID, accessToken, message string, imageData []byte, placeID string) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("source", "image.jpg")
+	if err != nil {
+		return "", err
+	}
+	part.Write(imageData)
+	
+	writer.WriteField("message", message)
+	writer.WriteField("access_token", accessToken)
+	if placeID != "" {
+		writer.WriteField("tags", placeID)
+	}
+	writer.Close()
+	
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/photos", GraphAPIURL, pageID), body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	fbResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer fbResp.Body.Close()
+	
+	return c.parsePostResponse(fbResp)
+}
+
+func (c *Client) postWithMultipleImagesAndPlace(pageID, accessToken, message string, imageURLs []string, placeID string) (string, error) {
+	// Download all images first
+	var imageDataList [][]byte
+	for _, imageURL := range imageURLs {
+		resp, err := http.Get(imageURL)
+		if err != nil {
+			return "", fmt.Errorf("failed to download image: %w", err)
+		}
+		imageData, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read image: %w", err)
+		}
+		imageDataList = append(imageDataList, imageData)
+	}
+	
+	return c.postMultipleImagesWithDataAndPlace(pageID, accessToken, message, imageDataList, placeID)
+}
+
+func (c *Client) postMultipleImagesWithDataAndPlace(pageID, accessToken, message string, imageDataList [][]byte, placeID string) (string, error) {
+	// Upload all images first
+	type uploadResult struct {
+		mediaID string
+		index   int
+		err     error
+	}
+	
+	resultChan := make(chan uploadResult, len(imageDataList))
+	
+	for i, imageData := range imageDataList {
+		go func(idx int, data []byte) {
+			mediaID, err := c.uploadPhotoData(pageID, accessToken, data)
+			resultChan <- uploadResult{
+				mediaID: mediaID,
+				index:   idx,
+				err:     err,
+			}
+		}(i, imageData)
+	}
+	
+	results := make([]uploadResult, len(imageDataList))
+	for i := 0; i < len(imageDataList); i++ {
+		result := <-resultChan
+		results[result.index] = result
+	}
+	
+	var attachedMedia []string
+	for i, result := range results {
+		if result.err != nil {
+			return "", fmt.Errorf("failed to upload image %d: %w", i+1, result.err)
+		}
+		mediaJSON := map[string]string{"media_fbid": result.mediaID}
+		jsonBytes, _ := json.Marshal(mediaJSON)
+		attachedMedia = append(attachedMedia, string(jsonBytes))
+	}
+	
+	// Create post with attached media
+	data := url.Values{}
+	data.Set("message", message)
+	for _, media := range attachedMedia {
+		data.Add("attached_media[]", media)
+	}
+	data.Set("access_token", accessToken)
+	if placeID != "" {
+		data.Set("tags", placeID)
+	}
+	
+	resp, err := c.httpClient.PostForm(fmt.Sprintf("%s/%s/feed", GraphAPIURL, pageID), data)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	return c.parsePostResponse(resp)
+}
+
+func (c *Client) postWithVideoAndPlace(pageID, accessToken, message, videoURL, placeID string) (string, error) {
+	resp, err := http.Get(videoURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download video: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	videoData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read video: %w", err)
+	}
+	
+	return c.postVideoWithDataAndPlace(pageID, accessToken, message, videoData, placeID)
+}
+
+func (c *Client) postVideoWithDataAndPlace(pageID, accessToken, message string, videoData []byte, placeID string) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("source", "video.mp4")
+	if err != nil {
+		return "", err
+	}
+	part.Write(videoData)
+	
+	writer.WriteField("description", message)
+	writer.WriteField("access_token", accessToken)
+	if placeID != "" {
+		writer.WriteField("tags", placeID)
+	}
+	writer.Close()
+	
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/videos", GraphAPIURL, pageID), body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	fbResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer fbResp.Body.Close()
+	
+	return c.parsePostResponse(fbResp)
+}
+
+func (c *Client) uploadPhotoData(pageID, accessToken string, imageData []byte) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("source", "image.jpg")
+	if err != nil {
+		return "", err
+	}
+	part.Write(imageData)
+	
+	writer.WriteField("published", "false")
+	writer.WriteField("access_token", accessToken)
+	writer.Close()
+	
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/photos", GraphAPIURL, pageID), body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	fbResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer fbResp.Body.Close()
+	
+	var result struct {
+		ID string `json:"id"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	
+	bodyBytes, _ := io.ReadAll(fbResp.Body)
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return "", fmt.Errorf("failed to parse upload response: %s", string(bodyBytes))
+	}
+	
+	if result.Error != nil {
+		return "", fmt.Errorf("facebook upload error: %s", result.Error.Message)
+	}
+	
+	return result.ID, nil
+}
+
+
+// PostToPageWithTagsAndPlace posts with both tags and place
+func (c *Client) PostToPageWithTagsAndPlaceURLs(pageID, accessToken, message string, mediaURLs []string, mediaType, tags, place string) (string, error) {
+	if len(mediaURLs) == 0 {
+		return c.postTextOnlyWithTagsAndPlace(pageID, accessToken, message, tags, place)
+	}
+	
+	if mediaType == "video" {
+		return c.postWithVideoAndTagsPlace(pageID, accessToken, message, mediaURLs[0], tags, place)
+	}
+	
+	if len(mediaURLs) == 1 {
+		return c.postWithSingleImageAndTagsPlace(pageID, accessToken, message, mediaURLs[0], tags, place)
+	}
+	
+	return c.postWithMultipleImagesAndTagsPlace(pageID, accessToken, message, mediaURLs, tags, place)
+}
+
+// PostToPageWithTagsAndPlace posts with preloaded data
+func (c *Client) PostToPageWithTagsAndPlace(pageID, accessToken, message string, mediaData [][]byte, mediaType, tags, place string) (string, error) {
+	if len(mediaData) == 0 {
+		return c.postTextOnlyWithTagsAndPlace(pageID, accessToken, message, tags, place)
+	}
+	
+	if mediaType == "video" {
+		return c.postVideoWithDataAndTagsPlace(pageID, accessToken, message, mediaData[0], tags, place)
+	}
+	
+	if len(mediaData) == 1 {
+		return c.postSingleImageWithDataAndTagsPlace(pageID, accessToken, message, mediaData[0], tags, place)
+	}
+	
+	return c.postMultipleImagesWithDataAndTagsPlace(pageID, accessToken, message, mediaData, tags, place)
+}
+
+func (c *Client) postTextOnlyWithTagsAndPlace(pageID, accessToken, message, tags, place string) (string, error) {
+	data := url.Values{}
+	data.Set("message", message)
+	data.Set("access_token", accessToken)
+	if tags != "" {
+		data.Set("tags", tags)
+	}
+	if place != "" {
+		data.Set("place", place)
+	}
+	
+	resp, err := c.httpClient.PostForm(fmt.Sprintf("%s/%s/feed", GraphAPIURL, pageID), data)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	return c.parsePostResponse(resp)
+}
+
+func (c *Client) postWithSingleImageAndTagsPlace(pageID, accessToken, message, imageURL, tags, place string) (string, error) {
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download image: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	imageData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read image: %w", err)
+	}
+	
+	return c.postSingleImageWithDataAndTagsPlace(pageID, accessToken, message, imageData, tags, place)
+}
+
+func (c *Client) postSingleImageWithDataAndTagsPlace(pageID, accessToken, message string, imageData []byte, tags, place string) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("source", "image.jpg")
+	if err != nil {
+		return "", err
+	}
+	part.Write(imageData)
+	
+	writer.WriteField("message", message)
+	writer.WriteField("access_token", accessToken)
+	if tags != "" {
+		writer.WriteField("tags", tags)
+	}
+	if place != "" {
+		writer.WriteField("place", place)
+	}
+	writer.Close()
+	
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/photos", GraphAPIURL, pageID), body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	fbResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer fbResp.Body.Close()
+	
+	return c.parsePostResponse(fbResp)
+}
+
+func (c *Client) postWithMultipleImagesAndTagsPlace(pageID, accessToken, message string, imageURLs []string, tags, place string) (string, error) {
+	var imageDataList [][]byte
+	for _, imageURL := range imageURLs {
+		resp, err := http.Get(imageURL)
+		if err != nil {
+			return "", fmt.Errorf("failed to download image: %w", err)
+		}
+		imageData, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read image: %w", err)
+		}
+		imageDataList = append(imageDataList, imageData)
+	}
+	
+	return c.postMultipleImagesWithDataAndTagsPlace(pageID, accessToken, message, imageDataList, tags, place)
+}
+
+func (c *Client) postMultipleImagesWithDataAndTagsPlace(pageID, accessToken, message string, imageDataList [][]byte, tags, place string) (string, error) {
+	type uploadResult struct {
+		mediaID string
+		index   int
+		err     error
+	}
+	
+	resultChan := make(chan uploadResult, len(imageDataList))
+	
+	for i, imageData := range imageDataList {
+		go func(idx int, data []byte) {
+			mediaID, err := c.uploadPhotoData(pageID, accessToken, data)
+			resultChan <- uploadResult{
+				mediaID: mediaID,
+				index:   idx,
+				err:     err,
+			}
+		}(i, imageData)
+	}
+	
+	results := make([]uploadResult, len(imageDataList))
+	for i := 0; i < len(imageDataList); i++ {
+		result := <-resultChan
+		results[result.index] = result
+	}
+	
+	var attachedMedia []string
+	for i, result := range results {
+		if result.err != nil {
+			return "", fmt.Errorf("failed to upload image %d: %w", i+1, result.err)
+		}
+		mediaJSON := map[string]string{"media_fbid": result.mediaID}
+		jsonBytes, _ := json.Marshal(mediaJSON)
+		attachedMedia = append(attachedMedia, string(jsonBytes))
+	}
+	
+	data := url.Values{}
+	data.Set("message", message)
+	for _, media := range attachedMedia {
+		data.Add("attached_media[]", media)
+	}
+	data.Set("access_token", accessToken)
+	if tags != "" {
+		data.Set("tags", tags)
+	}
+	if place != "" {
+		data.Set("place", place)
+	}
+	
+	resp, err := c.httpClient.PostForm(fmt.Sprintf("%s/%s/feed", GraphAPIURL, pageID), data)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	
+	return c.parsePostResponse(resp)
+}
+
+func (c *Client) postWithVideoAndTagsPlace(pageID, accessToken, message, videoURL, tags, place string) (string, error) {
+	resp, err := http.Get(videoURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to download video: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	videoData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read video: %w", err)
+	}
+	
+	return c.postVideoWithDataAndTagsPlace(pageID, accessToken, message, videoData, tags, place)
+}
+
+func (c *Client) postVideoWithDataAndTagsPlace(pageID, accessToken, message string, videoData []byte, tags, place string) (string, error) {
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	
+	part, err := writer.CreateFormFile("source", "video.mp4")
+	if err != nil {
+		return "", err
+	}
+	part.Write(videoData)
+	
+	writer.WriteField("description", message)
+	writer.WriteField("access_token", accessToken)
+	if tags != "" {
+		writer.WriteField("tags", tags)
+	}
+	if place != "" {
+		writer.WriteField("place", place)
+	}
+	writer.Close()
+	
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s/videos", GraphAPIURL, pageID), body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	
+	fbResp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer fbResp.Body.Close()
+	
+	return c.parsePostResponse(fbResp)
 }
