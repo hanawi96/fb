@@ -222,17 +222,42 @@ func (s *Store) RecordPostFailure(accountID string, isRateLimit bool) error {
 
 // GetBestAccountForPage lấy account tốt nhất để đăng bài
 func (s *Store) GetBestAccountForPage(pageID string) (*FacebookAccount, error) {
-	var accountID sql.NullString
-	err := s.db.QueryRow("SELECT get_best_account_for_page($1)", pageID).Scan(&accountID)
+	query := `
+		SELECT 
+			fa.id, fa.fb_user_id, fa.fb_user_name, COALESCE(fa.profile_picture_url, ''),
+			fa.access_token, fa.token_expires_at, fa.max_pages, fa.max_posts_per_day,
+			fa.status, fa.rate_limit_until, fa.posts_today,
+			fa.last_post_at, fa.last_error_at, fa.consecutive_failures,
+			fa.notes, fa.created_at, fa.updated_at
+		FROM page_account_assignments pa
+		JOIN facebook_accounts fa ON fa.id = pa.account_id
+		WHERE pa.page_id = $1
+			AND fa.status = 'active'
+			AND (fa.rate_limit_until IS NULL OR fa.rate_limit_until < NOW())
+			AND fa.posts_today < fa.max_posts_per_day
+		ORDER BY 
+			pa.is_primary DESC,
+			fa.posts_today ASC,
+			fa.last_error_at ASC NULLS FIRST
+		LIMIT 1
+	`
+
+	var a FacebookAccount
+	err := s.db.QueryRow(query, pageID).Scan(
+		&a.ID, &a.FbUserID, &a.FbUserName, &a.ProfilePictureURL,
+		&a.AccessToken, &a.TokenExpiresAt, &a.MaxPages, &a.MaxPostsPerDay,
+		&a.Status, &a.RateLimitUntil, &a.PostsToday,
+		&a.LastPostAt, &a.LastErrorAt, &a.ConsecutiveFailures,
+		&a.Notes, &a.CreatedAt, &a.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil // No available account
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	if !accountID.Valid {
-		return nil, nil // No available account
-	}
-
-	return s.GetAccountByID(accountID.String)
+	return &a, nil
 }
 
 // ResetDailyPostCounts reset counter hàng ngày

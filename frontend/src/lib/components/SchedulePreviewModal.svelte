@@ -51,8 +51,10 @@
 		dispatch('close');
 	}
 
+	import { formatCustomVN } from '$lib/utils/datetime';
+	
 	function formatTime(dateStr) {
-		return new Date(dateStr).toLocaleString('vi-VN', {
+		return formatCustomVN(dateStr, {
 			hour: '2-digit',
 			minute: '2-digit',
 			day: '2-digit',

@@ -3,8 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"time"
 
+	"fbscheduler/internal/config"
 	"fbscheduler/internal/scheduler"
 )
 
@@ -30,10 +30,10 @@ func (h *Handler) PreviewSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse date
-	preferredDate := time.Now()
+	// Parse date using Vietnam timezone
+	preferredDate := config.NowVN()
 	if req.PreferredDate != "" {
-		parsed, err := time.Parse("2006-01-02", req.PreferredDate)
+		parsed, err := config.ParseDateVN(req.PreferredDate)
 		if err == nil {
 			preferredDate = parsed
 		}
@@ -71,10 +71,10 @@ func (h *Handler) ScheduleWithPreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse date
-	preferredDate := time.Now()
+	// Parse date using Vietnam timezone
+	preferredDate := config.NowVN()
 	if req.PreferredDate != "" {
-		parsed, err := time.Parse("2006-01-02", req.PreferredDate)
+		parsed, err := config.ParseDateVN(req.PreferredDate)
 		if err == nil {
 			preferredDate = parsed
 		}
@@ -114,9 +114,10 @@ func (h *Handler) ScheduleWithPreview(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetScheduleStats(w http.ResponseWriter, r *http.Request) {
 	dateStr := r.URL.Query().Get("date")
 
-	date := time.Now()
+	// Parse date using Vietnam timezone
+	date := config.NowVN()
 	if dateStr != "" {
-		parsed, err := time.Parse("2006-01-02", dateStr)
+		parsed, err := config.ParseDateVN(dateStr)
 		if err == nil {
 			date = parsed
 		}

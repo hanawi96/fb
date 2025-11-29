@@ -67,37 +67,21 @@ func (s *SchedulingService) ConfirmSchedule(postID string, results []ScheduleRes
 			MaxRetries:    3,
 		}
 
+		// Set account_id và time_slot_id
+		if r.AccountID != "" {
+			sp.AccountID = &r.AccountID
+		}
+		if r.TimeSlotID != "" {
+			sp.TimeSlotID = &r.TimeSlotID
+		}
+
 		err := s.store.CreateScheduledPost(sp)
 		if err != nil {
 			return err
 		}
-
-		// Cập nhật thêm thông tin account và time slot
-		if r.AccountID != "" || r.TimeSlotID != "" {
-			err = s.updateScheduledPostDetails(sp.ID, r.AccountID, r.TimeSlotID, r.RandomOffset)
-			if err != nil {
-				// Log error but continue
-				continue
-			}
-		}
 	}
 
 	return nil
-}
-
-// updateScheduledPostDetails cập nhật chi tiết scheduled post
-func (s *SchedulingService) updateScheduledPostDetails(spID, accountID, timeSlotID string, randomOffset int) error {
-	query := `
-		UPDATE scheduled_posts 
-		SET account_id = NULLIF($2, ''),
-			time_slot_id = NULLIF($3, ''),
-			random_offset_seconds = $4,
-			calculated_time = scheduled_time
-		WHERE id = $1
-	`
-
-	_, err := s.store.DB().Exec(query, spID, accountID, timeSlotID, randomOffset)
-	return err
 }
 
 // PreviewSchedule chỉ preview, không tạo scheduled posts
@@ -119,35 +103,22 @@ func (s *SchedulingService) SchedulePostToSinglePage(postID, pageID string, sche
 
 	// Lấy account tốt nhất
 	account, _ := s.store.GetBestAccountForPage(pageID)
-	accountID := ""
-	if account != nil {
-		accountID = account.ID
-	}
-
-	// Thêm random offset
-	randomOffset := generateRandomOffset()
-	adjustedTime := scheduledTime.Add(time.Duration(randomOffset) * time.Second)
-
+	
 	// Tạo scheduled post
 	sp := &db.ScheduledPost{
 		PostID:        postID,
 		PageID:        pageID,
-		ScheduledTime: adjustedTime,
+		ScheduledTime: scheduledTime,
 		Status:        "pending",
 		MaxRetries:    3,
 	}
 
-	err := s.store.CreateScheduledPost(sp)
-	if err != nil {
-		return err
+	// Set account_id nếu có
+	if account != nil {
+		sp.AccountID = &account.ID
 	}
 
-	// Cập nhật account
-	if accountID != "" {
-		s.updateScheduledPostDetails(sp.ID, accountID, "", randomOffset)
-	}
-
-	return nil
+	return s.store.CreateScheduledPost(sp)
 }
 
 // GetScheduleStats lấy thống kê schedule

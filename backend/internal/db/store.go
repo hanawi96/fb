@@ -47,6 +47,8 @@ type ScheduledPost struct {
 	ID            string    `json:"id"`
 	PostID        string    `json:"post_id"`
 	PageID        string    `json:"page_id"`
+	AccountID     *string   `json:"account_id"`
+	TimeSlotID    *string   `json:"time_slot_id"`
 	ScheduledTime time.Time `json:"scheduled_time"`
 	Status        string    `json:"status"`
 	RetryCount    int       `json:"retry_count"`
@@ -55,8 +57,9 @@ type ScheduledPost struct {
 	UpdatedAt     time.Time `json:"updated_at"`
 	
 	// Joined fields
-	Post     *Post `json:"post,omitempty"`
-	Page     *Page `json:"page,omitempty"`
+	Post    *Post            `json:"post,omitempty"`
+	Page    *Page            `json:"page,omitempty"`
+	Account *FacebookAccount `json:"account,omitempty"`
 }
 
 type PostLog struct {

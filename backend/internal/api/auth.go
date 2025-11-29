@@ -99,9 +99,18 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 	
 	log.Printf("📊 Received %d pages from Facebook", len(pages))
 	
-	// Convert to response format - include account_id
+	// Convert to response format - include account_id and tasks
 	responsePages := make([]map[string]interface{}, 0, len(pages))
 	for _, pageInfo := range pages {
+		// Check if page has CREATE_CONTENT permission
+		hasCreateContent := false
+		for _, task := range pageInfo.Tasks {
+			if task == "CREATE_CONTENT" {
+				hasCreateContent = true
+				break
+			}
+		}
+		
 		pageData := map[string]interface{}{
 			"page_id":             pageInfo.ID,
 			"page_name":           pageInfo.Name,
@@ -110,6 +119,8 @@ func (h *Handler) FacebookCallback(w http.ResponseWriter, r *http.Request) {
 			"profile_picture_url": pageInfo.Picture.Data.URL,
 			"account_id":          account.ID,
 			"account_name":        account.FbUserName,
+			"tasks":               pageInfo.Tasks,
+			"can_post":            hasCreateContent,
 		}
 		responsePages = append(responsePages, pageData)
 	}
@@ -178,8 +189,9 @@ func (h *Handler) DebugPages(w http.ResponseWriter, r *http.Request) {
 // SaveSelectedPages - Lưu các pages đã được user chọn và gán vào account
 func (h *Handler) SaveSelectedPages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		AccountID string `json:"account_id"`
-		Pages     []struct {
+		AccountID         string   `json:"account_id"`
+		UnselectedPageIDs []string `json:"unselected_page_ids"`
+		Pages             []struct {
 			PageID            string `json:"page_id"`
 			PageName          string `json:"page_name"`
 			AccessToken       string `json:"access_token"`
@@ -194,6 +206,18 @@ func (h *Handler) SaveSelectedPages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("💾 Saving %d selected pages for account %s", len(req.Pages), req.AccountID)
+
+	// Xóa các pages bị bỏ chọn
+	if len(req.UnselectedPageIDs) > 0 {
+		log.Printf("🗑️ Removing %d unselected pages", len(req.UnselectedPageIDs))
+		for _, pageID := range req.UnselectedPageIDs {
+			if err := h.store.DeletePageByPageID(pageID); err != nil {
+				log.Printf("⚠️ Failed to delete page %s: %v", pageID, err)
+			} else {
+				log.Printf("🗑️ Deleted page: %s", pageID)
+			}
+		}
+	}
 
 	// Save or update selected pages and assign to account
 	savedPages := make([]db.Page, 0, len(req.Pages))

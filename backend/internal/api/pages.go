@@ -7,7 +7,7 @@ import (
 )
 
 func (h *Handler) GetPages(w http.ResponseWriter, r *http.Request) {
-	pages, err := h.store.GetPages()
+	pages, err := h.store.GetPagesWithAccount()
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to fetch pages: "+err.Error())
 		return

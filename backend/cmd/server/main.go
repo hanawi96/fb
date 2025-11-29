@@ -87,11 +87,13 @@ func main() {
 	// Schedule routes
 	apiRouter.HandleFunc("/schedule", handler.SchedulePost).Methods("POST")
 	apiRouter.HandleFunc("/schedule", handler.GetScheduledPosts).Methods("GET")
+	apiRouter.HandleFunc("/schedule/check-conflict", handler.CheckScheduleConflict).Methods("POST")
 	apiRouter.HandleFunc("/schedule/preview", handler.PreviewSchedule).Methods("POST")
 	apiRouter.HandleFunc("/schedule/smart", handler.ScheduleWithPreview).Methods("POST")
 	apiRouter.HandleFunc("/schedule/stats", handler.GetScheduleStats).Methods("GET")
 	apiRouter.HandleFunc("/schedule/{id}", handler.DeleteScheduledPost).Methods("DELETE")
 	apiRouter.HandleFunc("/schedule/{id}/retry", handler.RetryScheduledPost).Methods("POST")
+	apiRouter.HandleFunc("/schedule/{id}/test", handler.TestScheduleNow).Methods("POST") // DEV: Test ngay
 	
 	// Logs routes
 	apiRouter.HandleFunc("/logs", handler.GetPostLogs).Methods("GET")

@@ -41,9 +41,9 @@ export const api = {
 		method: 'POST',
 		body: JSON.stringify({ code })
 	}),
-	saveSelectedPages: (pages, accountId) => request('/api/auth/pages/save', {
+	saveSelectedPages: (pages, accountId, unselectedPageIds = []) => request('/api/auth/pages/save', {
 		method: 'POST',
-		body: JSON.stringify({ pages, account_id: accountId })
+		body: JSON.stringify({ pages, account_id: accountId, unselected_page_ids: unselectedPageIds })
 	}),
 	
 	// Pages
@@ -73,10 +73,15 @@ export const api = {
 		method: 'POST',
 		body: JSON.stringify(data)
 	}),
+	checkScheduleConflict: (pageIds, scheduledTime) => request('/api/schedule/check-conflict', {
+		method: 'POST',
+		body: JSON.stringify({ page_ids: pageIds, scheduled_time: scheduledTime })
+	}),
 	getScheduledPosts: (status = '', limit = 50, offset = 0) => 
 		request(`/api/schedule?status=${status}&limit=${limit}&offset=${offset}`),
 	deleteScheduledPost: (id) => request(`/api/schedule/${id}`, { method: 'DELETE' }),
 	retryScheduledPost: (id) => request(`/api/schedule/${id}/retry`, { method: 'POST' }),
+	testScheduleNow: (id) => request(`/api/schedule/${id}/test`, { method: 'POST' }),
 	
 	// Logs
 	getLogs: (limit = 50, offset = 0) => request(`/api/logs?limit=${limit}&offset=${offset}`),

@@ -77,7 +77,7 @@
 	
 	<!-- Draggable Image Grid -->
 	<div class="flex flex-wrap gap-1">
-		{#each images as image, index}
+		{#each images as image, index (image)}
 			<div 
 				class="relative group w-20 h-20 cursor-move"
 				draggable="true"

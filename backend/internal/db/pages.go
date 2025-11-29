@@ -126,3 +126,76 @@ func (s *Store) GetActivePages() ([]Page, error) {
 	
 	return pages, nil
 }
+
+// DeletePageByPageID xóa page theo Facebook page_id
+func (s *Store) DeletePageByPageID(pageID string) error {
+	// Lấy internal id trước
+	var id string
+	err := s.db.QueryRow("SELECT id FROM pages WHERE page_id = $1", pageID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil // Page không tồn tại, không cần xóa
+	}
+	if err != nil {
+		return err
+	}
+
+	// Dùng DeletePage để xóa (đã có logic xử lý cascade)
+	return s.DeletePage(id)
+}
+
+// PageWithAccount là Page kèm thông tin account quản lý
+type PageWithAccount struct {
+	Page
+	AccountID         *string `json:"account_id,omitempty"`
+	AccountName       *string `json:"account_name,omitempty"`
+	AccountPictureURL *string `json:"account_picture_url,omitempty"`
+}
+
+// GetPagesWithAccount lấy danh sách pages kèm thông tin account primary
+func (s *Store) GetPagesWithAccount() ([]PageWithAccount, error) {
+	query := `
+		SELECT 
+			p.id, p.page_id, p.page_name, p.category, 
+			p.profile_picture_url, p.is_active, p.created_at, p.updated_at,
+			fa.id, fa.fb_user_name, fa.profile_picture_url
+		FROM pages p
+		LEFT JOIN page_account_assignments paa ON paa.page_id = p.id AND paa.is_primary = true
+		LEFT JOIN facebook_accounts fa ON fa.id = paa.account_id
+		ORDER BY p.created_at DESC
+	`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	pages := make([]PageWithAccount, 0)
+	for rows.Next() {
+		var p PageWithAccount
+		var accountID, accountName, accountPicture sql.NullString
+
+		err := rows.Scan(
+			&p.ID, &p.PageID, &p.PageName, &p.Category,
+			&p.ProfilePictureURL, &p.IsActive, &p.CreatedAt, &p.UpdatedAt,
+			&accountID, &accountName, &accountPicture,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if accountID.Valid {
+			p.AccountID = &accountID.String
+		}
+		if accountName.Valid {
+			p.AccountName = &accountName.String
+		}
+		if accountPicture.Valid {
+			p.AccountPictureURL = &accountPicture.String
+		}
+
+		pages = append(pages, p)
+	}
+
+	return pages, nil
+}

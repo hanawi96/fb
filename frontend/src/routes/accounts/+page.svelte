@@ -3,6 +3,7 @@
 	import { api } from '$lib/api';
 	import { toast } from '$lib/stores/toast';
 	import Toast from '$lib/components/Toast.svelte';
+	import { formatDateTimeVN } from '$lib/utils/datetime';
 	import { User, Plus, Trash2, RefreshCw, AlertTriangle, CheckCircle, Clock, ChevronDown, ChevronUp, Settings } from 'lucide-svelte';
 
 	let accounts = [];
@@ -228,7 +229,7 @@
 								<div>
 									<div class="text-gray-500 mb-1">Lần đăng cuối</div>
 									<div class="text-gray-900">
-										{account.last_post_at ? new Date(account.last_post_at).toLocaleString('vi-VN') : 'Chưa có'}
+										{account.last_post_at ? formatDateTimeVN(account.last_post_at) : 'Chưa có'}
 									</div>
 								</div>
 								<div>

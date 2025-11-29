@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 )
@@ -293,6 +294,20 @@ func (h *Handler) PublishPost(w http.ResponseWriter, r *http.Request) {
 			logEntry.ErrorMessage = result.err.Error()
 			h.store.CreatePostLog(logEntry)
 			
+			// Tạo scheduled_post với status failed để hiển thị trong lịch đăng
+			account, _ := h.store.GetPrimaryAccountForPage(result.pageID)
+			scheduledPost := &db.ScheduledPost{
+				PostID:        post.ID,
+				PageID:        result.pageID,
+				ScheduledTime: time.Now(),
+				Status:        "failed",
+				MaxRetries:    0,
+			}
+			if account != nil {
+				scheduledPost.AccountID = &account.ID
+			}
+			h.store.CreateScheduledPost(scheduledPost)
+			
 			results = append(results, map[string]interface{}{
 				"page_id":   result.pageID,
 				"page_name": result.pageName,
@@ -305,6 +320,20 @@ func (h *Handler) PublishPost(w http.ResponseWriter, r *http.Request) {
 			logEntry.Status = "success"
 			logEntry.FacebookPostID = result.fbPostID
 			h.store.CreatePostLog(logEntry)
+			
+			// Tạo scheduled_post với status completed để hiển thị trong lịch đăng
+			account, _ := h.store.GetPrimaryAccountForPage(result.pageID)
+			scheduledPost := &db.ScheduledPost{
+				PostID:        post.ID,
+				PageID:        result.pageID,
+				ScheduledTime: time.Now(),
+				Status:        "completed",
+				MaxRetries:    0,
+			}
+			if account != nil {
+				scheduledPost.AccountID = &account.ID
+			}
+			h.store.CreateScheduledPost(scheduledPost)
 			
 			results = append(results, map[string]interface{}{
 				"page_id":         result.pageID,

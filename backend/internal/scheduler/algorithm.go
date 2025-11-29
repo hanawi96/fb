@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"fbscheduler/internal/config"
 	"fbscheduler/internal/db"
 )
 
@@ -16,8 +17,8 @@ import (
 // ============================================
 
 const (
-	MinIntervalSameAccountMinutes = 5  // Khoảng cách tối thiểu cùng nick (phút)
-	RandomOffsetMinSeconds        = 60 // Random offset tối thiểu (giây)
+	MinIntervalSameAccountMinutes = 5   // Khoảng cách tối thiểu cùng nick (phút)
+	RandomOffsetMinSeconds        = 60  // Random offset tối thiểu (giây)
 	RandomOffsetMaxSeconds        = 180 // Random offset tối đa (giây)
 )
 
@@ -106,13 +107,15 @@ func (s *SmartScheduler) CalculateSchedule(req ScheduleRequest) (*SchedulePrevie
 	for _, r := range preview.Results {
 		if r.Error != nil {
 			preview.ErrorCount++
-		} else if r.Warning != "" {
-			preview.WarningCount++
-			if isNextDay(r.ScheduledTime, req.PreferredDate) {
-				preview.NextDayCount++
-			}
 		} else {
+			// Có scheduled time = success (kể cả có warning)
 			preview.SuccessCount++
+			if r.Warning != "" {
+				preview.WarningCount++
+				if isNextDay(r.ScheduledTime, req.PreferredDate) {
+					preview.NextDayCount++
+				}
+			}
 		}
 	}
 
@@ -157,51 +160,71 @@ func (s *SmartScheduler) collectPageTimeSlots(pageIDs []string, date time.Time) 
 		// Lấy time slots của page
 		slots, err := s.store.GetTimeSlotsByPage(pageID)
 		if err != nil || len(slots) == 0 {
-			// Page không có time slot, tạo default
+			// Page không có time slot, tạo default (9h-21h Vietnam time)
+			dateVN := config.ToVN(date)
 			result = append(result, pageSlotInfo{
 				PageID:      pageID,
 				PageName:    page.PageName,
 				AccountID:   accountID,
 				AccountName: accountName,
 				Slot:        nil,
-				StartTime:   time.Date(date.Year(), date.Month(), date.Day(), 9, 0, 0, 0, date.Location()),
-				EndTime:     time.Date(date.Year(), date.Month(), date.Day(), 21, 0, 0, 0, date.Location()),
+				StartTime:   time.Date(dateVN.Year(), dateVN.Month(), dateVN.Day(), 9, 0, 0, 0, config.VietnamTZ),
+				EndTime:     time.Date(dateVN.Year(), dateVN.Month(), dateVN.Day(), 21, 0, 0, 0, config.VietnamTZ),
 			})
 			continue
 		}
 
-		// Tìm slot gần nhất còn trống
-		slot := s.findNearestAvailableSlot(slots, date)
-		if slot == nil {
-			// Không có slot trống hôm nay, thử ngày mai
-			nextDay := date.AddDate(0, 0, 1)
-			slot = s.findNearestAvailableSlot(slots, nextDay)
-			if slot != nil {
-				date = nextDay
-			}
+		// Sử dụng query tối ưu để tìm slot trống tiếp theo
+		// Bắt đầu từ preferred date (không cần check bài muộn nhất)
+		startDate := date
+		nowVN := config.NowVN()
+		if startDate.Before(nowVN) {
+			startDate = nowVN
 		}
 
-		if slot != nil {
-			startTime, endTime := s.parseSlotTimes(slot, date)
-			result = append(result, pageSlotInfo{
-				PageID:      pageID,
-				PageName:    page.PageName,
-				AccountID:   accountID,
-				AccountName: accountName,
-				Slot:        slot,
-				StartTime:   startTime,
-				EndTime:     endTime,
-			})
+		// Tìm slot trống tiếp theo bằng 1 query (thay vì loop 30 lần)
+		slotResult, err := s.store.FindNextAvailableSlot(pageID, startDate, 30)
+		
+		if err == nil && slotResult != nil {
+			// Tìm được slot trống
+			slot, err := s.store.GetTimeSlotByID(slotResult.SlotID)
+			if err == nil {
+				startTime, endTime := s.parseSlotTimes(slot, slotResult.Date)
+				result = append(result, pageSlotInfo{
+					PageID:      pageID,
+					PageName:    page.PageName,
+					AccountID:   accountID,
+					AccountName: accountName,
+					Slot:        slot,
+					StartTime:   startTime,
+					EndTime:     endTime,
+				})
+				continue
+			}
 		}
+		
+		// Không tìm được slot trống, thêm vào với error
+		result = append(result, pageSlotInfo{
+			PageID:      pageID,
+			PageName:    page.PageName,
+			AccountID:   accountID,
+			AccountName: accountName,
+			Slot:        nil,
+			StartTime:   time.Time{}, // Zero time để đánh dấu lỗi
+			EndTime:     time.Time{},
+		})
 	}
 
 	return result, nil
 }
 
-// findNearestAvailableSlot tìm slot gần nhất còn trống
+// findNearestAvailableSlot tìm slot gần nhất còn trống trong 1 ngày cụ thể
 func (s *SmartScheduler) findNearestAvailableSlot(slots []db.PageTimeSlot, date time.Time) *db.PageTimeSlot {
-	now := time.Now()
-	dayOfWeek := int(date.Weekday())
+	// Sử dụng thời gian Vietnam để so sánh
+	nowVN := config.NowVN()
+	dateVN := config.ToVN(date)
+	
+	dayOfWeek := int(dateVN.Weekday())
 	if dayOfWeek == 0 {
 		dayOfWeek = 7 // Sunday = 7
 	}
@@ -227,8 +250,8 @@ func (s *SmartScheduler) findNearestAvailableSlot(slots []db.PageTimeSlot, date 
 
 		// Nếu là hôm nay, kiểm tra thời gian đã qua chưa
 		_, endTime := s.parseSlotTimes(slot, date)
-		if date.Year() == now.Year() && date.YearDay() == now.YearDay() {
-			if endTime.Before(now) {
+		if dateVN.Year() == nowVN.Year() && dateVN.YearDay() == nowVN.YearDay() {
+			if endTime.Before(nowVN) {
 				continue
 			}
 		}
@@ -240,12 +263,17 @@ func (s *SmartScheduler) findNearestAvailableSlot(slots []db.PageTimeSlot, date 
 }
 
 // parseSlotTimes parse start/end time từ slot
+// Sử dụng Vietnam timezone vì khung giờ được setup theo giờ Việt Nam
 func (s *SmartScheduler) parseSlotTimes(slot *db.PageTimeSlot, date time.Time) (time.Time, time.Time) {
 	startHour, startMin := parseTimeString(slot.StartTime)
 	endHour, endMin := parseTimeString(slot.EndTime)
 
-	startTime := time.Date(date.Year(), date.Month(), date.Day(), startHour, startMin, 0, 0, date.Location())
-	endTime := time.Date(date.Year(), date.Month(), date.Day(), endHour, endMin, 0, 0, date.Location())
+	// Chuyển date sang Vietnam timezone
+	dateInVN := config.ToVN(date)
+
+	// Tạo thời gian theo Vietnam timezone
+	startTime := time.Date(dateInVN.Year(), dateInVN.Month(), dateInVN.Day(), startHour, startMin, 0, 0, config.VietnamTZ)
+	endTime := time.Date(dateInVN.Year(), dateInVN.Month(), dateInVN.Day(), endHour, endMin, 0, 0, config.VietnamTZ)
 
 	return startTime, endTime
 }
@@ -290,12 +318,38 @@ func (s *SmartScheduler) groupPagesByOverlappingSlots(pages []pageSlotInfo) [][]
 }
 
 // distributeTimesInGroup phân bổ thời gian trong 1 nhóm
+// Thuật toán mới: Phân bổ ngẫu nhiên rải đều trong toàn bộ khung giờ
 func (s *SmartScheduler) distributeTimesInGroup(group []pageSlotInfo, preferredDate time.Time) []ScheduleResult {
 	results := make([]ScheduleResult, 0, len(group))
 
 	if len(group) == 0 {
 		return results
 	}
+	
+	// Kiểm tra và xử lý các page không tìm được slot (StartTime = zero)
+	var validPages []pageSlotInfo
+	for _, page := range group {
+		if page.StartTime.IsZero() {
+			// Page không tìm được slot trống, thêm vào result với error
+			results = append(results, ScheduleResult{
+				PageID:      page.PageID,
+				PageName:    page.PageName,
+				AccountID:   page.AccountID,
+				AccountName: page.AccountName,
+				Error:       errors.New("Không tìm được khung giờ trống trong 7 ngày tới"),
+			})
+		} else {
+			validPages = append(validPages, page)
+		}
+	}
+	
+	// Nếu không còn page hợp lệ, return luôn
+	if len(validPages) == 0 {
+		return results
+	}
+	
+	// Tiếp tục xử lý với các page hợp lệ
+	group = validPages
 
 	// Tìm khoảng thời gian chung
 	commonStart := group[0].StartTime
@@ -324,41 +378,109 @@ func (s *SmartScheduler) distributeTimesInGroup(group []pageSlotInfo, preferredD
 		}
 	}
 
-	// Tính interval
-	duration := commonEnd.Sub(commonStart)
-	interval := duration / time.Duration(len(group))
+	// Nhóm pages theo account
+	accountPages := make(map[string][]pageSlotInfo)
+	for _, page := range group {
+		key := page.AccountID
+		if key == "" {
+			key = "no_account_" + page.PageID // Mỗi page không có account là 1 nhóm riêng
+		}
+		accountPages[key] = append(accountPages[key], page)
+	}
 
-	// Đảm bảo interval tối thiểu cho cùng nick
+	// Phân bổ thời gian cho từng account
 	minInterval := time.Duration(MinIntervalSameAccountMinutes) * time.Minute
 
-	// Nhóm theo account để đảm bảo khoảng cách
-	accountLastTime := make(map[string]time.Time)
+	for _, pages := range accountPages {
+		accountResults := s.distributeTimesForAccount(pages, commonStart, commonEnd, minInterval, preferredDate)
+		results = append(results, accountResults...)
+	}
 
-	for i, page := range group {
-		scheduledTime := commonStart.Add(interval * time.Duration(i))
+	// Sort kết quả theo thời gian
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].ScheduledTime.Before(results[j].ScheduledTime)
+	})
 
-		// Kiểm tra khoảng cách với bài trước cùng nick
-		if page.AccountID != "" {
-			if lastTime, ok := accountLastTime[page.AccountID]; ok {
-				minNextTime := lastTime.Add(minInterval)
-				if scheduledTime.Before(minNextTime) {
-					scheduledTime = minNextTime
-				}
-			}
-			accountLastTime[page.AccountID] = scheduledTime
+	return results
+}
+
+// distributeTimesForAccount phân bổ thời gian ngẫu nhiên rải đều cho 1 account
+// Chia khung giờ thành N vùng, random trong mỗi vùng
+func (s *SmartScheduler) distributeTimesForAccount(pages []pageSlotInfo, start, end time.Time, minInterval time.Duration, preferredDate time.Time) []ScheduleResult {
+	results := make([]ScheduleResult, 0, len(pages))
+	n := len(pages)
+
+	if n == 0 {
+		return results
+	}
+
+	// Tổng thời gian khung giờ
+	totalDuration := end.Sub(start)
+
+	// Chia thành N vùng
+	zoneDuration := totalDuration / time.Duration(n)
+
+	// Đảm bảo mỗi vùng đủ lớn cho khoảng cách tối thiểu
+	if zoneDuration < minInterval {
+		zoneDuration = minInterval
+	}
+
+	// Tạo danh sách thời gian cho từng page
+	var scheduledTimes []time.Time
+	var lastTime time.Time
+
+	for i := 0; i < n; i++ {
+		// Tính vùng thời gian cho page này
+		zoneStart := start.Add(zoneDuration * time.Duration(i))
+		zoneEnd := start.Add(zoneDuration * time.Duration(i+1))
+
+		// Vùng cuối cùng kéo dài đến end
+		if i == n-1 {
+			zoneEnd = end
 		}
 
-		// Thêm random offset
-		randomOffset := generateRandomOffset()
-		scheduledTime = scheduledTime.Add(time.Duration(randomOffset) * time.Second)
+		// Đảm bảo zoneStart >= lastTime + minInterval
+		if i > 0 && zoneStart.Before(lastTime.Add(minInterval)) {
+			zoneStart = lastTime.Add(minInterval)
+		}
 
-		// Kiểm tra có vượt quá end time không
+		// Nếu zoneStart >= zoneEnd, không còn chỗ
+		if !zoneStart.Before(zoneEnd) {
+			// Đặt ngay sau lastTime + minInterval
+			scheduledTimes = append(scheduledTimes, lastTime.Add(minInterval))
+			lastTime = lastTime.Add(minInterval)
+			continue
+		}
+
+		// Random trong vùng [zoneStart, zoneEnd - buffer]
+		// Buffer để đảm bảo không quá sát cuối vùng
+		buffer := time.Duration(30) * time.Second
+		availableDuration := zoneEnd.Sub(zoneStart) - buffer
+		if availableDuration < 0 {
+			availableDuration = 0
+		}
+
+		// Random offset trong vùng
+		randomSeconds := secureRandomInt(int(availableDuration.Seconds()))
+		scheduledTime := zoneStart.Add(time.Duration(randomSeconds) * time.Second)
+
+		// Đảm bảo khoảng cách tối thiểu với bài trước
+		if i > 0 && scheduledTime.Before(lastTime.Add(minInterval)) {
+			scheduledTime = lastTime.Add(minInterval)
+		}
+
+		scheduledTimes = append(scheduledTimes, scheduledTime)
+		lastTime = scheduledTime
+	}
+
+	// Tạo kết quả
+	for i, page := range pages {
+		scheduledTime := scheduledTimes[i]
+
 		warning := ""
-		if scheduledTime.After(commonEnd) {
+		if scheduledTime.After(end) {
 			warning = "Thời gian đăng vượt quá khung giờ"
 		}
-
-		// Kiểm tra có phải ngày mai không
 		if isNextDay(scheduledTime, preferredDate) {
 			warning = "Đẩy sang ngày mai do hết slot"
 		}
@@ -375,12 +497,24 @@ func (s *SmartScheduler) distributeTimesInGroup(group []pageSlotInfo, preferredD
 			AccountName:   page.AccountName,
 			TimeSlotID:    slotID,
 			ScheduledTime: scheduledTime,
-			RandomOffset:  randomOffset,
+			RandomOffset:  0, // Đã random trong vùng, không cần offset thêm
 			Warning:       warning,
 		})
 	}
 
 	return results
+}
+
+// secureRandomInt tạo số ngẫu nhiên từ 0 đến max-1
+func secureRandomInt(max int) int {
+	if max <= 0 {
+		return 0
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0
+	}
+	return int(n.Int64())
 }
 
 // ============================================

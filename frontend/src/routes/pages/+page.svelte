@@ -154,12 +154,17 @@
 					profile_picture_url: p.profile_picture_url
 				}));
 			
+			// Lấy danh sách pages bị bỏ chọn để xóa
+			const unselectedPageIds = availablePages
+				.filter(p => !selectedPageIds.has(p.page_id))
+				.map(p => p.page_id);
+			
 			// Đóng modal ngay để UX mượt hơn
 			showPageSelectionModal = false;
 			toast.show(`Đang lưu ${selectedPages.length} pages...`, 'info');
 			
-			// Gửi kèm account_id để gán pages vào account
-			await api.saveSelectedPages(selectedPages, currentAccountId);
+			// Gửi kèm account_id và danh sách pages bị bỏ chọn
+			await api.saveSelectedPages(selectedPages, currentAccountId, unselectedPageIds);
 			
 			toast.show(`Đã lưu ${selectedPages.length} pages!`, 'success');
 			await loadPages();
@@ -276,7 +281,14 @@
 								alt={page.page_name}
 								class="w-12 h-12 rounded-full"
 							/>
-							{#if page.is_active}
+							{#if page.account_picture_url}
+								<img 
+									src={page.account_picture_url} 
+									alt={page.account_name}
+									title="Quản lý bởi: {page.account_name}"
+									class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white"
+								/>
+							{:else if page.is_active}
 								<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 rounded-full border-2 border-white"></div>
 							{:else}
 								<div class="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-gray-400 rounded-full border-2 border-white"></div>
@@ -285,6 +297,12 @@
 						<div class="flex-1 min-w-0">
 							<h3 class="font-medium text-sm text-gray-900 truncate">{page.page_name}</h3>
 							<p class="text-xs text-gray-500 truncate mt-0.5">{page.category || 'Không rõ'}</p>
+							{#if page.account_name}
+								<p class="text-xs text-blue-600 truncate mt-0.5 flex items-center gap-1">
+									<User size={10} />
+									{page.account_name}
+								</p>
+							{/if}
 						</div>
 					</div>
 					
@@ -401,7 +419,8 @@
 								class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all duration-150
 									{selectedPageIds.has(page.page_id)
 										? 'border-blue-200 bg-blue-50/50'
-										: 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}"
+										: 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'}
+									{page.can_post === false ? 'opacity-75' : ''}"
 							>
 								<input 
 									type="checkbox" 
@@ -417,6 +436,12 @@
 								<div class="flex-1 min-w-0">
 									<div class="font-medium text-sm text-gray-900 truncate">{page.page_name}</div>
 									<div class="text-xs text-gray-500 truncate">{page.category || 'Không rõ'}</div>
+									{#if page.can_post === false}
+										<div class="flex items-center gap-1 mt-1">
+											<XCircle size={12} class="text-amber-500" />
+											<span class="text-xs text-amber-600">Chưa có quyền đăng bài</span>
+										</div>
+									{/if}
 								</div>
 								{#if selectedPageIds.has(page.page_id)}
 									<CheckCircle2 size={18} class="text-blue-600 flex-shrink-0" />

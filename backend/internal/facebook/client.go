@@ -143,7 +143,7 @@ func (c *Client) GetUserInfo(accessToken string) (*UserInfo, error) {
 // GetUserPages retrieves all pages managed by the user
 func (c *Client) GetUserPages(userAccessToken string) ([]PageInfo, error) {
 	allPages := []PageInfo{}
-	url := fmt.Sprintf("%s/me/accounts?access_token=%s&fields=id,name,access_token,category,picture&limit=100", 
+	url := fmt.Sprintf("%s/me/accounts?access_token=%s&fields=id,name,access_token,category,picture,tasks&limit=100", 
 		GraphAPIURL, userAccessToken)
 	
 	for url != "" {
@@ -768,10 +768,11 @@ func (c *Client) parsePostResponse(resp *http.Response) (string, error) {
 
 // PageInfo represents a Facebook page
 type PageInfo struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	AccessToken string `json:"access_token"`
-	Category    string `json:"category"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	AccessToken string   `json:"access_token"`
+	Category    string   `json:"category"`
+	Tasks       []string `json:"tasks"`
 	Picture     struct {
 		Data struct {
 			URL string `json:"url"`

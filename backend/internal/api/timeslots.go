@@ -31,12 +31,12 @@ func (h *Handler) CreateTimeSlot(w http.ResponseWriter, r *http.Request) {
 	pageID := mux.Vars(r)["id"]
 
 	var req struct {
-		SlotName        string `json:"slot_name"`
-		StartTime       string `json:"start_time"` // "13:00"
-		EndTime         string `json:"end_time"`   // "15:00"
-		DaysOfWeek      []int  `json:"days_of_week"`
-		Priority        int    `json:"priority"`
-		MaxPostsPerSlot int    `json:"max_posts_per_slot"`
+		SlotName     string `json:"slot_name"`
+		StartTime    string `json:"start_time"` // "13:00"
+		EndTime      string `json:"end_time"`   // "15:00"
+		DaysOfWeek   []int  `json:"days_of_week"`
+		Priority     int    `json:"priority"`
+		SlotCapacity int    `json:"slot_capacity"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -54,14 +54,14 @@ func (h *Handler) CreateTimeSlot(w http.ResponseWriter, r *http.Request) {
 	endTime := normalizeTimeFormat(req.EndTime)
 
 	slot := &db.PageTimeSlot{
-		PageID:          pageID,
-		SlotName:        req.SlotName,
-		StartTime:       startTime,
-		EndTime:         endTime,
-		DaysOfWeek:      req.DaysOfWeek,
-		IsActive:        true,
-		Priority:        req.Priority,
-		MaxPostsPerSlot: 1,
+		PageID:       pageID,
+		SlotName:     req.SlotName,
+		StartTime:    startTime,
+		EndTime:      endTime,
+		DaysOfWeek:   req.DaysOfWeek,
+		IsActive:     true,
+		Priority:     req.Priority,
+		SlotCapacity: 10, // Mặc định 10 bài
 	}
 
 	if len(slot.DaysOfWeek) == 0 {
@@ -70,8 +70,8 @@ func (h *Handler) CreateTimeSlot(w http.ResponseWriter, r *http.Request) {
 	if slot.Priority == 0 {
 		slot.Priority = 5
 	}
-	if req.MaxPostsPerSlot > 0 {
-		slot.MaxPostsPerSlot = req.MaxPostsPerSlot
+	if req.SlotCapacity > 0 {
+		slot.SlotCapacity = req.SlotCapacity
 	}
 
 	if err := h.store.CreateTimeSlot(slot); err != nil {
@@ -93,13 +93,13 @@ func (h *Handler) UpdateTimeSlot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		SlotName        string `json:"slot_name"`
-		StartTime       string `json:"start_time"`
-		EndTime         string `json:"end_time"`
-		DaysOfWeek      []int  `json:"days_of_week"`
-		IsActive        *bool  `json:"is_active"`
-		Priority        int    `json:"priority"`
-		MaxPostsPerSlot int    `json:"max_posts_per_slot"`
+		SlotName     string `json:"slot_name"`
+		StartTime    string `json:"start_time"`
+		EndTime      string `json:"end_time"`
+		DaysOfWeek   []int  `json:"days_of_week"`
+		IsActive     *bool  `json:"is_active"`
+		Priority     int    `json:"priority"`
+		SlotCapacity int    `json:"slot_capacity"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -125,8 +125,8 @@ func (h *Handler) UpdateTimeSlot(w http.ResponseWriter, r *http.Request) {
 	if req.Priority > 0 {
 		slot.Priority = req.Priority
 	}
-	if req.MaxPostsPerSlot > 0 {
-		slot.MaxPostsPerSlot = req.MaxPostsPerSlot
+	if req.SlotCapacity > 0 {
+		slot.SlotCapacity = req.SlotCapacity
 	}
 
 	if err := h.store.UpdateTimeSlot(slot); err != nil {

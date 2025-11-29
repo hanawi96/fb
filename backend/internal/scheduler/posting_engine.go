@@ -178,6 +178,13 @@ func (e *PostingEngine) handlePostSuccess(sp db.ScheduledPost, account *db.Faceb
 	// Update scheduled post status
 	e.store.UpdateScheduledPostStatus(sp.ID, "completed")
 
+	// Update account_id for tracking who posted
+	if account != nil {
+		if err := e.store.UpdateScheduledPostAccount(sp.ID, account.ID); err != nil {
+			log.Printf("⚠️ Error updating account_id: %v", err)
+		}
+	}
+
 	// Update log
 	logEntry.Status = "success"
 	logEntry.FacebookPostID = fbPostID

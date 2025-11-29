@@ -8,7 +8,13 @@ func (s *Store) CreatePostLog(log *PostLog) error {
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, posted_at
 	`
-	
+
+	// Đảm bảo response_data là JSON hợp lệ (null nếu empty)
+	responseData := log.ResponseData
+	if responseData == "" {
+		responseData = "{}"
+	}
+
 	return s.db.QueryRow(
 		query,
 		log.ScheduledPostID,
@@ -17,7 +23,7 @@ func (s *Store) CreatePostLog(log *PostLog) error {
 		log.FacebookPostID,
 		log.Status,
 		log.ErrorMessage,
-		log.ResponseData,
+		responseData,
 	).Scan(&log.ID, &log.PostedAt)
 }
 
